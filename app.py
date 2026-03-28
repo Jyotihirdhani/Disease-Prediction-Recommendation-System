@@ -47,7 +47,7 @@ age = st.number_input("Age", min_value=0, max_value=120, value=None)
 gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
 city = st.text_input("City")
 state = st.text_input("State")
-symptoms = st.text_area("Enter symptoms (comma separated)")
+symptoms = st.text_area("Enter symptoms (comma separated eg. Fever, Cough, ...)")
 
 # ===============================
 # Predict Button
@@ -103,7 +103,7 @@ if st.button("🔍 Analyze Health Condition"):
 
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        gemini = genai.GenerativeModel("models/gemini-pro")
+        gemini = genai.GenerativeModel("models/gemini-1.5-flash")
 
         prompt = f"""
 You are a medical assistant (educational purpose only).
