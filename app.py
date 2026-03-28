@@ -2,146 +2,178 @@ import streamlit as st
 import pandas as pd
 import pickle
 
-# ---------------- Page Config ----------------
-st.set_page_config(page_title="Healthcare Disease Prediction System", layout="centered")
+# ===============================
+# Page Configuration
+# ===============================
+st.set_page_config(
+    page_title="Healthcare Disease Prediction System",
+    layout="centered"
+)
+
 st.title("🩺 Healthcare Disease Prediction System")
 st.caption("AI-powered healthcare assistant (Educational Purpose Only)")
 
-# ---------------- Load ML ----------------
+# ===============================
+# Load ML Model (Baseline Only)
+# ===============================
 try:
     model = pickle.load(open("disease_model.pkl", "rb"))
     vectorizer = pickle.load(open("vectorizer.pkl", "rb"))
-except Exception as e:
-    st.error("ML model loading failed")
-    st.stop()
+except Exception:
+    model = None
+    vectorizer = None
 
-# ---------------- Load Data ----------------
+# ===============================
+# Load Datasets
+# ===============================
 try:
     desc_df = pd.read_excel("symptom_Description.xlsx")
     prec_df = pd.read_excel("symptom_precaution.xlsx")
     hospital_df = pd.read_excel("Hospitals_India.xlsx")
-except:
-    st.error("Dataset loading failed")
+except Exception:
+    st.error("❌ Required datasets could not be loaded.")
     st.stop()
 
-# Normalize hospital columns safely
+# Normalize hospital column names
 hospital_df.columns = hospital_df.columns.str.lower().str.strip()
 
-# ---------------- User Input ----------------
+# ===============================
+# User Input Form
+# ===============================
 st.subheader("👤 Patient Details")
 
-name = st.text_input("Name")
+name = st.text_input("Full Name")
 age = st.number_input("Age", min_value=0, max_value=120, value=None)
 gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
 city = st.text_input("City")
 state = st.text_input("State")
 symptoms = st.text_area("Enter symptoms (comma separated)")
 
-# ---------------- Predict ----------------
-if st.button("🔍 Predict Disease"):
+# ===============================
+# Predict Button
+# ===============================
+if st.button("🔍 Analyze Health Condition"):
 
     if not name or age is None or gender == "Select Gender" or not symptoms:
-        st.warning("Please fill all required fields")
+        st.warning("⚠️ Please fill all required fields.")
         st.stop()
 
-    # -------- ML Prediction --------
-    input_vec = vectorizer.transform([symptoms])
-    predicted_disease = model.predict(input_vec)[0]
-    st.success(f"🧠 ML Predicted Disease (Baseline): {predicted_disease}")
+    # ===============================
+    # Baseline ML Prediction (Reference Only)
+    # ===============================
+    baseline_prediction = "Not available"
 
-    # -------- Description --------
-    desc = desc_df[desc_df["Disease"] == predicted_disease]["Description"]
-    description = desc.values[0] if not desc.empty else "Not available"
+    if model and vectorizer:
+        try:
+            vec = vectorizer.transform([symptoms])
+            baseline_prediction = model.predict(vec)[0]
+        except:
+            baseline_prediction = "Prediction failed"
 
-    st.markdown("### 📘 Disease Description")
-    st.write(description)
+    st.success(f"🧠 Baseline ML Prediction (for reference): {baseline_prediction}")
 
-    # -------- Precautions --------
-    st.markdown("### 💊 Medicines / Precautions")
-    precautions = []
+    # ===============================
+    # Hospital Filtering (Context for Gemini)
+    # ===============================
+    hospital_context = ""
 
     try:
-        precautions = prec_df[prec_df["Disease"] == predicted_disease].iloc[0, 1:].dropna().tolist()
-        for p in precautions:
-            st.write("•", p)
-    except:
-        st.write("No precautions found")
+        matches = hospital_df[
+            (hospital_df["city"].astype(str).str.lower() == city.lower().strip()) &
+            (hospital_df["state"].astype(str).str.lower() == state.lower().strip())
+        ].head(5)
 
-    # -------- Gemini AI --------
+        if not matches.empty:
+            hospital_context = "\n".join(
+                f"- {row['hospital_name']} ({row['specialization']}, {row['address']})"
+                for _, row in matches.iterrows()
+            )
+        else:
+            hospital_context = "No matching hospitals found in dataset."
+    except:
+        hospital_context = "Hospital data unavailable."
+
+    # ===============================
+    # Gemini AI – PRIMARY LOGIC
+    # ===============================
     st.markdown("### 🤖 AI Medical Analysis")
 
     try:
         import google.generativeai as genai
+
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        model_ai = genai.GenerativeModel("models/gemini-pro")
+        gemini = genai.GenerativeModel("models/gemini-pro")
 
         prompt = f"""
-        Patient symptoms: {symptoms}
-        Age: {age}, Gender: {gender}
+You are a medical assistant (educational purpose only).
 
-        Analyze medically and provide:
-        1. Possible diseases (multiple if applicable)
-        2. Reasoning for each
-        3. General medicine categories (not prescriptions)
-        4. Precautions and lifestyle advice
-
-        Respond clearly with bullet points.
-        """
-
-        response = model_ai.generate_content(prompt)
-        st.write(response.text)
-
-    except Exception as e:
-        st.error("AI analysis failed")
-        st.code(str(e))
-
-    # -------- Hospitals --------
-    st.markdown("### 🏥 Nearby Hospitals")
-
-    try:
-        city_l = city.lower().strip()
-        state_l = state.lower().strip()
-
-        matches = hospital_df[
-            (hospital_df["city"].astype(str).str.lower() == city_l) &
-            (hospital_df["state"].astype(str).str.lower() == state_l)
-        ].head(5)
-
-        if matches.empty:
-            st.info("No hospitals found")
-        else:
-            for _, h in matches.iterrows():
-                st.markdown(f"""
-                **{h['hospital_name']}**  
-                {h['address']}  
-                Specialization: {h['specialization']}
-                """)
-
-    except Exception as e:
-        st.error("Hospital lookup failed")
-        st.code(str(e))
-
-    # -------- Report --------
-    report = f"""
+Patient Details:
 Name: {name}
 Age: {age}
 Gender: {gender}
 Location: {city}, {state}
+Symptoms: {symptoms}
 
-ML Predicted Disease:
-{predicted_disease}
+Nearby hospitals:
+{hospital_context}
 
-Description:
-{description}
+Tasks:
+1. Identify POSSIBLE diseases (one or multiple).
+2. Explain each disease briefly.
+3. Suggest GENERAL medicines (no prescriptions).
+4. Provide precautions and lifestyle advice.
+5. Recommend suitable hospitals from the list.
+6. Structure output with clear headings and bullet points.
+7. End with a medical disclaimer.
 
-Precautions:
-{', '.join(precautions) if precautions else 'N/A'}
+Do NOT give definitive diagnosis.
+"""
+
+        response = gemini.generate_content(prompt)
+        ai_output = response.text
+
+        st.write(ai_output)
+
+    except Exception as e:
+        st.error("❌ AI analysis failed.")
+        st.code(str(e))
+        ai_output = "AI analysis unavailable."
+
+    # ===============================
+    # Downloadable Report
+    # ===============================
+    report = f"""
+Healthcare Disease Prediction Report
+----------------------------------
+
+Patient Name: {name}
+Age: {age}
+Gender: {gender}
+Location: {city}, {state}
+
+Baseline ML Prediction (Reference):
+{baseline_prediction}
 
 Symptoms:
 {symptoms}
+
+AI Medical Analysis:
+{ai_output}
+
+----------------------------------
+⚠️ This system is for educational purposes only.
+Please consult a qualified medical professional.
 """
 
-    st.download_button("📄 Download Health Report", report, "health_report.txt")
+    st.download_button(
+        label="📄 Download Health Report",
+        data=report,
+        file_name="health_report.txt",
+        mime="text/plain"
+    )
 
-    st.info("⚠️ This system is for educational purposes only. Please consult a qualified medical professional.")
+    st.info(
+        "⚠️ This system is for educational purposes only. "
+        "Please consult a qualified medical professional."
+    )
