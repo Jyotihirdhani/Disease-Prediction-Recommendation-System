@@ -1,193 +1,154 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import sqlite3
 import pickle
-import os
+import google.generativeai as genai
 
-# --------------------------------
-# Page Configuration
-# --------------------------------
-st.set_page_config(page_title="Disease Prediction System", layout="centered")
+# -------------------------------
+# Page Config
+# -------------------------------
+st.set_page_config(page_title="Healthcare Disease Prediction", layout="centered")
 
-st.title("🩺 Disease Prediction & Recommendation System")
-st.caption("AI-powered healthcare decision support (Educational Purpose Only)")
+st.title("🩺 Healthcare Disease Prediction System")
+st.caption("AI-powered healthcare assistant (Educational Purpose Only)")
 
-# --------------------------------
-# Load Gemini API Key (Streamlit Secrets)
-# --------------------------------
+# -------------------------------
+# Load Gemini API Key
+# -------------------------------
 try:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-except KeyError:
-    GEMINI_API_KEY = None
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    gemini_model = genai.GenerativeModel("gemini-pro")
+except Exception:
+    gemini_model = None
 
-# --------------------------------
-# Load ML Model & Vectorizer
-# --------------------------------
+# -------------------------------
+# Load ML Model
+# -------------------------------
 try:
     with open("disease_model.pkl", "rb") as f:
-        model = pickle.load(f)
-
+        ml_model = pickle.load(f)
     with open("vectorizer.pkl", "rb") as f:
         vectorizer = pickle.load(f)
-
-except Exception as e:
-    st.error("❌ Failed to load ML model or vectorizer.")
+except Exception:
+    st.error("❌ ML model files missing.")
     st.stop()
 
-# --------------------------------
-# Load Datasets
-# --------------------------------
+# -------------------------------
+# Load Data
+# -------------------------------
 try:
-    desc_df = pd.read_excel("symptom_Description.xlsx")
-    prec_df = pd.read_excel("symptom_precaution.xlsx")
-    hospital_df = pd.read_excel("Hospitals_India.xlsx")
-except Exception as e:
-    st.error("❌ Failed to load one or more Excel files.")
+    hospitals_df = pd.read_excel("Hospitals_India.xlsx")
+except Exception:
+    st.error("❌ Hospital dataset not found.")
     st.stop()
 
-# --------------------------------
-# User Input Form
-# --------------------------------
+# -------------------------------
+# User Inputs
+# -------------------------------
 st.subheader("👤 Patient Details")
 
-name = st.text_input("Full Name", placeholder="Enter patient name")
+name = st.text_input("Name")
+age = st.number_input("Age", min_value=0, max_value=120, value=None)
+gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"])
+city = st.text_input("City")
+state = st.text_input("State")
 
-age = st.number_input(
-    "Age",
-    min_value=0,
-    max_value=120,
-    value=None,
-    placeholder="Enter age"
-)
+symptoms = st.text_area("Enter symptoms (comma separated)")
 
-gender = st.selectbox(
-    "Gender",
-    ["Select Gender", "Male", "Female", "Other"]
-)
+# -------------------------------
+# Predict Button
+# -------------------------------
+if st.button("🔍 Analyze Symptoms"):
 
-city = st.text_input("City", placeholder="Enter city")
-state = st.text_input("State", placeholder="Enter state")
-
-symptoms = st.text_area(
-    "Enter Symptoms (comma separated)",
-    placeholder="e.g. fever, cough, headache"
-)
-
-# --------------------------------
-# Prediction Button
-# --------------------------------
-if st.button("🔍 Predict Disease"):
-
-    if not name or age is None or gender == "Select Gender" or not symptoms:
-        st.warning("⚠️ Please fill all required fields.")
+    if not all([name, age is not None, gender != "Select", symptoms]):
+        st.warning("Please fill all required fields.")
         st.stop()
 
-    # --------------------------------
-    # Disease Prediction
-    # --------------------------------
+    # -------------------------------
+    # ML Prediction (Baseline)
+    # -------------------------------
     try:
-        input_vector = vectorizer.transform([symptoms])
-        predicted_disease = model.predict(input_vector)[0]
-    except Exception as e:
-        st.error("❌ Error during disease prediction.")
-        st.stop()
-
-    st.success(f"🧠 Predicted Disease: **{predicted_disease}**")
-
-    # --------------------------------
-    # Disease Description
-    # --------------------------------
-    try:
-        description = desc_df.loc[
-            desc_df["Disease"] == predicted_disease, "Description"
-        ].values[0]
+        vec = vectorizer.transform([symptoms])
+        ml_disease = ml_model.predict(vec)[0]
     except Exception:
-        description = "Description not available."
+        ml_disease = "Unknown"
 
-    st.markdown("### 📘 Disease Description")
-    st.write(description)
+    st.success(f"🧠 ML Predicted Disease (Baseline): **{ml_disease}**")
 
-    # --------------------------------
-    # Medicines & Precautions
-    # --------------------------------
-    st.markdown("### 💊 Medicines / Precautions")
+    # -------------------------------
+    # Gemini AI Reasoning
+    # -------------------------------
+    st.markdown("### 🤖 AI Medical Analysis")
 
-    precautions = []
-    try:
-        precautions = (
-            prec_df[prec_df["Disease"] == predicted_disease]
-            .iloc[0, 1:]
-            .dropna()
-            .values
-        )
+    ai_response = "AI service unavailable."
 
-        for i, p in enumerate(precautions, start=1):
-            st.write(f"{i}. {p}")
+    if gemini_model:
+        prompt = f"""
+You are a medical AI assistant.
 
-    except Exception:
-        st.info("No medicine or precaution data available.")
+Patient symptoms:
+{symptoms}
 
-    # --------------------------------
+Tasks:
+1. Identify possible diseases (multiple if applicable)
+2. Suggest medicines (general, non-prescription)
+3. Suggest precautions and lifestyle advice
+4. Recommend when to consult a doctor
+
+Respond in structured format with headings.
+"""
+        try:
+            response = gemini_model.generate_content(prompt)
+            ai_response = response.text
+        except Exception:
+            ai_response = "AI analysis failed."
+
+    st.markdown(ai_response)
+
+    # -------------------------------
     # Hospital Recommendation
-    # --------------------------------
+    # -------------------------------
     st.markdown("### 🏥 Nearby Hospitals")
 
     try:
-        filtered_hospitals = hospital_df[
-            (hospital_df["city"].str.lower() == city.lower()) &
-            (hospital_df["state"].str.lower() == state.lower())
-        ]
+        filtered = hospitals_df[
+            (hospitals_df["city"].str.lower() == city.lower()) &
+            (hospitals_df["state"].str.lower() == state.lower())
+        ].head(5)
 
-        if filtered_hospitals.empty:
+        if filtered.empty:
             st.info("No hospitals found for this location.")
         else:
-            for _, row in filtered_hospitals.iterrows():
-                st.write(
-                    f"**{row['hospital_name']}** — "
-                    f"{row['specialization']} | {row['address']}"
-                )
-
+            for _, row in filtered.iterrows():
+                st.write(f"**{row['hospital_name']}**, {row['address']}")
     except Exception:
-        st.warning("Hospital data unavailable.")
+        st.warning("Hospital lookup failed.")
 
-    # --------------------------------
-    # AI Advisory (Gemini Placeholder)
-    # --------------------------------
-    st.markdown("### 🤖 AI Health Advisory")
-
-    if GEMINI_API_KEY:
-        st.success("Gemini API key detected. AI integration ready.")
-    else:
-        st.warning("Gemini API key not configured.")
-
-    # --------------------------------
+    # -------------------------------
     # Report Download
-    # --------------------------------
-    report_text = f"""
+    # -------------------------------
+    report = f"""
 Patient Name: {name}
 Age: {age}
 Gender: {gender}
 Location: {city}, {state}
 
-Predicted Disease:
-{predicted_disease}
+Symptoms:
+{symptoms}
 
-Description:
-{description}
+ML Prediction:
+{ml_disease}
 
-Medicines / Precautions:
-{', '.join(map(str, precautions))}
+AI Medical Analysis:
+{ai_response}
+
+⚠️ This system is for educational purposes only.
+Please consult a qualified medical professional.
 """
 
     st.download_button(
-        label="📄 Download Health Report",
-        data=report_text,
-        file_name="health_report.txt",
-        mime="text/plain"
+        "📄 Download Medical Report",
+        report,
+        file_name="health_report.txt"
     )
 
-    st.info(
-        "⚠️ This system is for educational purposes only. "
-        "Please consult a qualified medical professional."
-    )
+    st.info("⚠️ This system is for educational purposes only. Please consult a qualified medical professional.")
