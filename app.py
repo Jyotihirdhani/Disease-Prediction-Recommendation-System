@@ -106,7 +106,7 @@ if st.button("🔍 Analyze Health Condition"):
 
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        gemini = genai.GenerativeModel("gemini-2.0-flash")   # ✅ CORRECT MODEL
+        gemini = genai.GenerativeModel("gemini-1.5-flash-latest")  # ✅ CORRECT MODEL
 
         prompt = f"""
 You are a medical assistant (educational purpose only).
