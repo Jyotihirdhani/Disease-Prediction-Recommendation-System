@@ -1,145 +1,187 @@
-# ==============================
-# IMPORT REQUIRED LIBRARIES
-# ==============================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
 import sqlite3
+import pickle
+import os
+from dotenv import load_dotenv
 
-# ==============================
-# PAGE CONFIGURATION
-# ==============================
+# -------------------------------
+# Load environment variables
+# -------------------------------
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-st.set_page_config(page_title="Healthcare Disease Prediction System")
+# -------------------------------
+# Page Configuration
+# -------------------------------
+st.set_page_config(page_title="Disease Prediction System", layout="centered")
 
-st.title("Healthcare Disease Prediction System")
-st.write("AI-based disease prediction with hospital and medicine recommendations")
+st.title("🩺 Disease Prediction & Recommendation System")
+st.caption("AI-powered healthcare decision support (Educational Purpose Only)")
 
-# ==============================
-# LOAD ML MODEL & VECTORIZER
-# ==============================
-
+# -------------------------------
+# Load ML Model & Vectorizer
+# -------------------------------
 try:
-    model = pickle.load(open("disease_model.pkl", "rb"))
-    vectorizer = pickle.load(open("vectorizer.pkl", "rb"))
+    with open("disease_model.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    with open("vectorizer.pkl", "rb") as f:
+        vectorizer = pickle.load(f)
+
 except Exception as e:
-    st.error("❌ Error loading ML model or vectorizer")
+    st.error("❌ Failed to load ML model or vectorizer.")
     st.stop()
 
-# ==============================
-# LOAD DATASETS
-# ==============================
-
+# -------------------------------
+# Load Datasets
+# -------------------------------
 try:
     desc_df = pd.read_excel("symptom_Description.xlsx")
     prec_df = pd.read_excel("symptom_precaution.xlsx")
     hospital_df = pd.read_excel("Hospitals_India.xlsx")
+
 except Exception:
-    st.error("❌ Error loading dataset files")
+    st.error("❌ Failed to load one or more Excel files.")
     st.stop()
 
-# ==============================
-# DATABASE CONNECTION
-# ==============================
+# -------------------------------
+# User Input Form
+# -------------------------------
+st.subheader("👤 Patient Details")
 
-def get_db_connection():
-    return sqlite3.connect("healthcare.db")
+name = st.text_input("Full Name", placeholder="Enter patient name")
 
-# ==============================
-# USER INPUT FORM
-# ==============================
+age = st.number_input(
+    "Age",
+    min_value=0,
+    max_value=120,
+    value=None,
+    placeholder="Enter age"
+)
 
-st.subheader("Enter Patient Details")
+gender = st.selectbox(
+    "Gender",
+    ["Select Gender", "Male", "Female", "Other"]
+)
 
-with st.form("user_form"):
-    name = st.text_input("Name")
-    age = st.number_input("Age", min_value=1, max_value=120)
-    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    city = st.text_input("City")
-    state = st.text_input("State")
-    symptoms = st.text_area("Enter Symptoms (comma separated)")
+city = st.text_input("City", placeholder="Enter city")
+state = st.text_input("State", placeholder="Enter state")
 
-    submit = st.form_submit_button("Predict Disease")
+symptoms = st.text_area(
+    "Enter Symptoms (comma separated)",
+    placeholder="e.g. fever, cough, headache"
+)
 
-# ==============================
-# MAIN LOGIC AFTER SUBMISSION
-# ==============================
-
-if submit:
-
-    # -------- INPUT VALIDATION --------
-    if name == "" or city == "" or state == "" or symptoms == "":
-        st.warning("⚠️ Please fill all fields")
+# -------------------------------
+# Validation
+# -------------------------------
+if st.button("🔍 Predict Disease"):
+    if not name or age is None or gender == "Select Gender" or not symptoms:
+        st.warning("⚠️ Please fill all required fields.")
         st.stop()
 
-    # -------- DISEASE PREDICTION --------
+    # -------------------------------
+    # Disease Prediction
+    # -------------------------------
     try:
-        symptom_vector = vectorizer.transform([symptoms])
-        predicted_disease = model.predict(symptom_vector)[0]
+        input_vector = vectorizer.transform([symptoms])
+        predicted_disease = model.predict(input_vector)[0]
     except Exception:
-        st.error("❌ Disease prediction failed")
+        st.error("❌ Error during disease prediction.")
         st.stop()
 
-    st.success(f"✅ Predicted Disease: {predicted_disease}")
+    st.success(f"🧠 Predicted Disease: **{predicted_disease}**")
 
-    # -------- FETCH DESCRIPTION --------
+    # -------------------------------
+    # Disease Description
+    # -------------------------------
     try:
-        description = desc_df[desc_df["Disease"] == predicted_disease]["Description"].values[0]
+        description = desc_df[
+            desc_df["Disease"] == predicted_disease
+        ]["Description"].values[0]
     except Exception:
-        description = "Description not available"
+        description = "Description not available."
 
-    st.subheader("Disease Description")
+    st.markdown("### 📘 Disease Description")
     st.write(description)
 
-    # -------- FETCH PRECAUTIONS --------
-    st.subheader("Recommended Precautions / Medicines")
+    # -------------------------------
+    # Medicines & Precautions
+    # -------------------------------
+    st.markdown("### 💊 Medicines / Precautions")
+
     try:
-        precautions = prec_df[prec_df["Disease"] == predicted_disease].iloc[0, 1:].values
-        for p in precautions:
-            st.write("•", p)
+        precautions = prec_df[
+            prec_df["Disease"] == predicted_disease
+        ].iloc[0, 1:].dropna().values
+
+        for i, p in enumerate(precautions, start=1):
+            st.write(f"{i}. {p}")
+
     except Exception:
-        st.write("Precautions not available")
+        st.write("No medicine or precaution data available.")
 
-    # -------- HOSPITAL RECOMMENDATION --------
-    st.subheader("Nearby Hospitals")
+    # -------------------------------
+    # Hospital Recommendation
+    # -------------------------------
+    st.markdown("### 🏥 Nearby Hospitals")
 
     try:
-        city_hospitals = hospital_df[
-            (hospital_df["city"].str.lower() == city.lower())
+        filtered_hospitals = hospital_df[
+            (hospital_df["city"].str.lower() == city.lower()) &
+            (hospital_df["state"].str.lower() == state.lower())
         ]
 
-        if city_hospitals.empty:
-            state_hospitals = hospital_df[
-                (hospital_df["state"].str.lower() == state.lower())
-            ]
-            hospitals_to_show = state_hospitals
+        if filtered_hospitals.empty:
+            st.info("No hospitals found for this location.")
         else:
-            hospitals_to_show = city_hospitals
-
-        if hospitals_to_show.empty:
-            st.warning("No hospitals found for your location")
-        else:
-            st.dataframe(hospitals_to_show[[
-                "hospital_name", "city", "state", "specialization", "contact"
-            ]])
+            for _, row in filtered_hospitals.iterrows():
+                st.write(
+                    f"**{row['hospital_name']}** — {row['specialization']} | {row['address']}"
+                )
 
     except Exception:
-        st.error("❌ Error fetching hospital data")
+        st.write("Hospital data unavailable.")
 
-    # -------- SAVE USER DATA TO DATABASE --------
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+    # -------------------------------
+    # AI Advisory (Gemini - Optional)
+    # -------------------------------
+    st.markdown("### 🤖 AI Health Advisory")
 
-        cursor.execute("""
-            INSERT INTO user
-            (name, age, gender, symptoms)
-            VALUES (?, ?, ?, ?)
-        """, (name, age, gender, symptoms))
+    if GEMINI_API_KEY:
+        st.info("AI advisory integration placeholder (API connected securely).")
+    else:
+        st.warning("AI advisory not enabled (API key missing).")
 
-        conn.commit()
-        conn.close()
-    except Exception:
-        st.warning("⚠️ User data not saved to database")
+    # -------------------------------
+    # Report Generation
+    # -------------------------------
+    report_text = f"""
+Patient Name: {name}
+Age: {age}
+Gender: {gender}
+Location: {city}, {state}
+
+Predicted Disease:
+{predicted_disease}
+
+Description:
+{description}
+
+Medicines / Precautions:
+{', '.join([str(p) for p in precautions])}
+"""
+
+    st.download_button(
+        label="📄 Download Health Report",
+        data=report_text,
+        file_name="health_report.txt",
+        mime="text/plain"
+    )
+
+    st.info(
+        "⚠️ This system is for educational purposes only. "
+        "Please consult a qualified medical professional."
+    )
