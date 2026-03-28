@@ -94,15 +94,19 @@ if st.button("🔍 Analyze Health Condition"):
     except Exception:
         hospital_context = "Hospital data unavailable."
 
-    # ===============================
+   # ===============================
     # Gemini AI
     # ===============================
     st.markdown("### 🤖 AI Medical Analysis")
 
+    ai_output = "AI analysis unavailable."   # always initialize first
+
     try:
+        import google.generativeai as genai
+
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        gemini = genai.GenerativeModel("gemini-1.5-flash")   # ✅ FIX 2: correct model name
+        gemini = genai.GenerativeModel("gemini-2.0-flash")   # ✅ CORRECT MODEL
 
         prompt = f"""
 You are a medical assistant (educational purpose only).
