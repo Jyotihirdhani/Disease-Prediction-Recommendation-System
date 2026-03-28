@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pickle
+import google.generativeai as genai          # ✅ FIX 1: moved to top
 
 # ===============================
 # Page Configuration
@@ -14,7 +15,7 @@ st.title("🩺 Healthcare Disease Prediction System")
 st.caption("AI-powered healthcare assistant (Educational Purpose Only)")
 
 # ===============================
-# Load ML Model (Baseline Only)
+# Load ML Model
 # ===============================
 try:
     model = pickle.load(open("disease_model.pkl", "rb"))
@@ -34,7 +35,6 @@ except Exception:
     st.error("❌ Required datasets could not be loaded.")
     st.stop()
 
-# Normalize hospital column names
 hospital_df.columns = hospital_df.columns.str.lower().str.strip()
 
 # ===============================
@@ -42,12 +42,12 @@ hospital_df.columns = hospital_df.columns.str.lower().str.strip()
 # ===============================
 st.subheader("👤 Patient Details")
 
-name = st.text_input("Full Name")
-age = st.number_input("Age", min_value=0, max_value=120, value=None)
-gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
-city = st.text_input("City")
-state = st.text_input("State")
-symptoms = st.text_area("Enter symptoms (comma separated eg. Fever, Cough, ...)")
+name     = st.text_input("Full Name")
+age      = st.number_input("Age", min_value=0, max_value=120, value=None)
+gender   = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
+city     = st.text_input("City")
+state    = st.text_input("State")
+symptoms = st.text_area("Enter symptoms (comma separated e.g. Fever, Cough ...)")
 
 # ===============================
 # Predict Button
@@ -58,25 +58,26 @@ if st.button("🔍 Analyze Health Condition"):
         st.warning("⚠️ Please fill all required fields.")
         st.stop()
 
+    # ✅ FIX 3: always initialize ai_output before Gemini call
+    ai_output = "AI analysis unavailable."
+
     # ===============================
-    # Baseline ML Prediction (Reference Only)
+    # Baseline ML Prediction
     # ===============================
     baseline_prediction = "Not available"
-
     if model and vectorizer:
         try:
             vec = vectorizer.transform([symptoms])
             baseline_prediction = model.predict(vec)[0]
-        except:
+        except Exception:
             baseline_prediction = "Prediction failed"
 
     st.success(f"🧠 Baseline ML Prediction (for reference): {baseline_prediction}")
 
     # ===============================
-    # Hospital Filtering (Context for Gemini)
+    # Hospital Filtering
     # ===============================
-    hospital_context = ""
-
+    hospital_context = "Hospital data unavailable."
     try:
         matches = hospital_df[
             (hospital_df["city"].astype(str).str.lower() == city.lower().strip()) &
@@ -90,20 +91,18 @@ if st.button("🔍 Analyze Health Condition"):
             )
         else:
             hospital_context = "No matching hospitals found in dataset."
-    except:
+    except Exception:
         hospital_context = "Hospital data unavailable."
 
     # ===============================
-    # Gemini AI – PRIMARY LOGIC
+    # Gemini AI
     # ===============================
     st.markdown("### 🤖 AI Medical Analysis")
 
     try:
-        import google.generativeai as genai
-
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        gemini = genai.GenerativeModel("models/gemini-1.5-flash")
+        gemini = genai.GenerativeModel("gemini-1.5-flash")   # ✅ FIX 2: correct model name
 
         prompt = f"""
 You are a medical assistant (educational purpose only).
@@ -129,16 +128,13 @@ Tasks:
 
 Do NOT give definitive diagnosis.
 """
-
         response = gemini.generate_content(prompt)
         ai_output = response.text
-
         st.write(ai_output)
 
     except Exception as e:
         st.error("❌ AI analysis failed.")
         st.code(str(e))
-        ai_output = "AI analysis unavailable."
 
     # ===============================
     # Downloadable Report
@@ -146,11 +142,10 @@ Do NOT give definitive diagnosis.
     report = f"""
 Healthcare Disease Prediction Report
 ----------------------------------
-
-Patient Name: {name}
-Age: {age}
-Gender: {gender}
-Location: {city}, {state}
+Patient Name : {name}
+Age          : {age}
+Gender       : {gender}
+Location     : {city}, {state}
 
 Baseline ML Prediction (Reference):
 {baseline_prediction}
@@ -165,7 +160,6 @@ AI Medical Analysis:
 ⚠️ This system is for educational purposes only.
 Please consult a qualified medical professional.
 """
-
     st.download_button(
         label="📄 Download Health Report",
         data=report,
