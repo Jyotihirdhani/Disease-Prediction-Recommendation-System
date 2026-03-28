@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pickle
-import google.generativeai as genai          # ✅ FIX 1: moved to top
+from google import genai                         # ✅ NEW correct SDK
 
 # ===============================
 # Page Configuration
@@ -58,7 +58,7 @@ if st.button("🔍 Analyze Health Condition"):
         st.warning("⚠️ Please fill all required fields.")
         st.stop()
 
-    # ✅ FIX 3: always initialize ai_output before Gemini call
+    # Always initialize ai_output before Gemini block
     ai_output = "AI analysis unavailable."
 
     # ===============================
@@ -77,7 +77,7 @@ if st.button("🔍 Analyze Health Condition"):
     # ===============================
     # Hospital Filtering
     # ===============================
-    hospital_context = "Hospital data unavailable."
+    hospital_context = "No hospital data available."
     try:
         matches = hospital_df[
             (hospital_df["city"].astype(str).str.lower() == city.lower().strip()) &
@@ -94,19 +94,13 @@ if st.button("🔍 Analyze Health Condition"):
     except Exception:
         hospital_context = "Hospital data unavailable."
 
-   # ===============================
-    # Gemini AI
+    # ===============================
+    # Gemini AI — NEW SDK
     # ===============================
     st.markdown("### 🤖 AI Medical Analysis")
 
-    ai_output = "AI analysis unavailable."   # always initialize first
-
     try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
-        gemini = genai.GenerativeModel("gemini-1.5-flash-latest")  # ✅ CORRECT MODEL
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])  # ✅ NEW syntax
 
         prompt = f"""
 You are a medical assistant (educational purpose only).
@@ -132,7 +126,11 @@ Tasks:
 
 Do NOT give definitive diagnosis.
 """
-        response = gemini.generate_content(prompt)
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",                               # ✅ CORRECT model
+            contents=prompt
+        )
         ai_output = response.text
         st.write(ai_output)
 
@@ -164,6 +162,7 @@ AI Medical Analysis:
 ⚠️ This system is for educational purposes only.
 Please consult a qualified medical professional.
 """
+
     st.download_button(
         label="📄 Download Health Report",
         data=report,
@@ -175,3 +174,6 @@ Please consult a qualified medical professional.
         "⚠️ This system is for educational purposes only. "
         "Please consult a qualified medical professional."
     )
+```
+
+---
