@@ -174,6 +174,3 @@ Please consult a qualified medical professional.
         "⚠️ This system is for educational purposes only. "
         "Please consult a qualified medical professional."
     )
-```
-
----
