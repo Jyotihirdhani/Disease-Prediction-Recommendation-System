@@ -4,25 +4,26 @@ import numpy as np
 import sqlite3
 import pickle
 import os
-from dotenv import load_dotenv
 
-# -------------------------------
-# Load environment variables
-# -------------------------------
-load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-# -------------------------------
+# --------------------------------
 # Page Configuration
-# -------------------------------
+# --------------------------------
 st.set_page_config(page_title="Disease Prediction System", layout="centered")
 
 st.title("🩺 Disease Prediction & Recommendation System")
 st.caption("AI-powered healthcare decision support (Educational Purpose Only)")
 
-# -------------------------------
+# --------------------------------
+# Load Gemini API Key (Streamlit Secrets)
+# --------------------------------
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    GEMINI_API_KEY = None
+
+# --------------------------------
 # Load ML Model & Vectorizer
-# -------------------------------
+# --------------------------------
 try:
     with open("disease_model.pkl", "rb") as f:
         model = pickle.load(f)
@@ -34,21 +35,20 @@ except Exception as e:
     st.error("❌ Failed to load ML model or vectorizer.")
     st.stop()
 
-# -------------------------------
+# --------------------------------
 # Load Datasets
-# -------------------------------
+# --------------------------------
 try:
     desc_df = pd.read_excel("symptom_Description.xlsx")
     prec_df = pd.read_excel("symptom_precaution.xlsx")
     hospital_df = pd.read_excel("Hospitals_India.xlsx")
-
-except Exception:
+except Exception as e:
     st.error("❌ Failed to load one or more Excel files.")
     st.stop()
 
-# -------------------------------
+# --------------------------------
 # User Input Form
-# -------------------------------
+# --------------------------------
 st.subheader("👤 Patient Details")
 
 name = st.text_input("Full Name", placeholder="Enter patient name")
@@ -74,58 +74,63 @@ symptoms = st.text_area(
     placeholder="e.g. fever, cough, headache"
 )
 
-# -------------------------------
-# Validation
-# -------------------------------
+# --------------------------------
+# Prediction Button
+# --------------------------------
 if st.button("🔍 Predict Disease"):
+
     if not name or age is None or gender == "Select Gender" or not symptoms:
         st.warning("⚠️ Please fill all required fields.")
         st.stop()
 
-    # -------------------------------
+    # --------------------------------
     # Disease Prediction
-    # -------------------------------
+    # --------------------------------
     try:
         input_vector = vectorizer.transform([symptoms])
         predicted_disease = model.predict(input_vector)[0]
-    except Exception:
+    except Exception as e:
         st.error("❌ Error during disease prediction.")
         st.stop()
 
     st.success(f"🧠 Predicted Disease: **{predicted_disease}**")
 
-    # -------------------------------
+    # --------------------------------
     # Disease Description
-    # -------------------------------
+    # --------------------------------
     try:
-        description = desc_df[
-            desc_df["Disease"] == predicted_disease
-        ]["Description"].values[0]
+        description = desc_df.loc[
+            desc_df["Disease"] == predicted_disease, "Description"
+        ].values[0]
     except Exception:
         description = "Description not available."
 
     st.markdown("### 📘 Disease Description")
     st.write(description)
 
-    # -------------------------------
+    # --------------------------------
     # Medicines & Precautions
-    # -------------------------------
+    # --------------------------------
     st.markdown("### 💊 Medicines / Precautions")
 
+    precautions = []
     try:
-        precautions = prec_df[
-            prec_df["Disease"] == predicted_disease
-        ].iloc[0, 1:].dropna().values
+        precautions = (
+            prec_df[prec_df["Disease"] == predicted_disease]
+            .iloc[0, 1:]
+            .dropna()
+            .values
+        )
 
         for i, p in enumerate(precautions, start=1):
             st.write(f"{i}. {p}")
 
     except Exception:
-        st.write("No medicine or precaution data available.")
+        st.info("No medicine or precaution data available.")
 
-    # -------------------------------
+    # --------------------------------
     # Hospital Recommendation
-    # -------------------------------
+    # --------------------------------
     st.markdown("### 🏥 Nearby Hospitals")
 
     try:
@@ -139,25 +144,26 @@ if st.button("🔍 Predict Disease"):
         else:
             for _, row in filtered_hospitals.iterrows():
                 st.write(
-                    f"**{row['hospital_name']}** — {row['specialization']} | {row['address']}"
+                    f"**{row['hospital_name']}** — "
+                    f"{row['specialization']} | {row['address']}"
                 )
 
     except Exception:
-        st.write("Hospital data unavailable.")
+        st.warning("Hospital data unavailable.")
 
-    # -------------------------------
-    # AI Advisory (Gemini - Optional)
-    # -------------------------------
+    # --------------------------------
+    # AI Advisory (Gemini Placeholder)
+    # --------------------------------
     st.markdown("### 🤖 AI Health Advisory")
 
     if GEMINI_API_KEY:
-        st.info("AI advisory integration placeholder (API connected securely).")
+        st.success("Gemini API key detected. AI integration ready.")
     else:
-        st.warning("AI advisory not enabled (API key missing).")
+        st.warning("Gemini API key not configured.")
 
-    # -------------------------------
-    # Report Generation
-    # -------------------------------
+    # --------------------------------
+    # Report Download
+    # --------------------------------
     report_text = f"""
 Patient Name: {name}
 Age: {age}
@@ -171,7 +177,7 @@ Description:
 {description}
 
 Medicines / Precautions:
-{', '.join([str(p) for p in precautions])}
+{', '.join(map(str, precautions))}
 """
 
     st.download_button(
