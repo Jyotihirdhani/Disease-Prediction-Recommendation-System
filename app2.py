@@ -274,7 +274,7 @@ def main():
         st.subheader("Enter Disease Here")
         raw_symptoms = st.text_area("Describe symptoms (e.g., fever, chest pain, nausea)")
 
-        submitted = st.form_submit_button("Analze Disease", type="primary")
+        submitted = st.form_submit_button("Analyze Disease", type="primary")
 
     # After form submission
     if submitted:
