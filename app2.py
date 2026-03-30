@@ -243,7 +243,7 @@ def main():
     st.title("Healthcare Disease Prediction System")
 
     # App subtitle
-    st.caption("Secure, Educational Triage System v2.0 (Location-Aware)")
+    st.caption("Secure, Educational System")
 
     # Initialize Gemini AI
     client = initialize_ai()
@@ -257,7 +257,7 @@ def main():
 
     # Create Streamlit form
     with st.form("patient_form"):
-        st.subheader("Patient Demographics")
+        st.subheader("Enter Patient Details Here")
 
         # Two-column layout
         col1, col2 = st.columns(2)
@@ -271,10 +271,10 @@ def main():
             raw_gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"])
             raw_state = st.text_input("State")
 
-        st.subheader("Clinical Information")
+        st.subheader("Enter Disease Here")
         raw_symptoms = st.text_area("Describe symptoms (e.g., fever, chest pain, nausea)")
 
-        submitted = st.form_submit_button("Analyze Symptoms & Locate Care", type="primary")
+        submitted = st.form_submit_button("Analze Disease", type="primary")
 
     # After form submission
     if submitted:
@@ -299,13 +299,13 @@ def main():
             )
 
         if analysis:
-            st.success("Baseline ML Prediction (for reference): GERD")
+            st.success("Baseline ML Prediction is Done")
             st.markdown("AI Medical Analysis")
             st.write(analysis)
 
             # Allow report download
             st.download_button(
-                label="📄 Download Secure Report",
+                label="📄 Download Report",
                 data=f"CONFIDENTIAL REPORT FOR: {name}\nLOCATION: {city}, {state}\n\n{analysis}",
                 file_name=f"triage_report_{name.replace(' ', '_')}.txt",
                 mime="text/plain"
