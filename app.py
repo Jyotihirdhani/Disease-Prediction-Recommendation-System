@@ -3,12 +3,15 @@
 # streamlit  → builds the web app UI
 # pandas     → reads Excel files (datasets)
 # pickle     → loads the saved ML model
-# groq       → connects to Groq AI API
+# google.generativeai → connects to Gemini API
+# dotenv     → loads secure API keys from .env
 # ================================================
 import streamlit as st
 import pandas as pd
 import pickle
-from groq import Groq
+import os
+from dotenv import load_dotenv
+import google.generativeai as genai
 
 # ================================================
 # PAGE CONFIGURATION
@@ -19,6 +22,13 @@ st.set_page_config(
     page_title="Healthcare Disease Prediction System",
     layout="centered"
 )
+
+# ================================================
+# LOAD ENV VARIABLES
+# Reads variables from a local .env file so API keys
+# are not hardcoded in source code
+# ================================================
+load_dotenv()
 
 # ================================================
 # PAGE HEADING
@@ -180,24 +190,31 @@ if st.button("🔍 Analyze Health Condition"):
         hospital_context = "Hospital data could not be retrieved."
 
     # ================================================
-    # GROQ AI — MAIN ANALYSIS
+    # GEMINI AI — MAIN ANALYSIS
     # This is the core AI section of the app
-    # Groq gives us access to powerful AI models
-    # completely free with no billing required
+    # Gemini gives us access to Google's AI models
     #
-    # Step 1: Read the API key from Streamlit Secrets
-    # Step 2: Create a Groq client with that key
+    # Step 1: Read API key from environment/.env
+    # Step 2: Configure Gemini client
     # Step 3: Build a detailed prompt with patient info
-    # Step 4: Send prompt to Groq and get response
+    # Step 4: Send prompt to Gemini and get response
     # Step 5: Display the response on screen
     # ================================================
     st.markdown("### 🤖 AI Medical Analysis")
 
     try:
-        # Read API key securely from Streamlit Secrets
-        # This key is stored in App Settings > Secrets
-        # It is never visible in the code (safe practice)
-        groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        # Read API key securely from .env / environment
+        # Add GEMINI_API_KEY in your .env file
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise ValueError(
+                "GEMINI_API_KEY is missing. Add it to your .env file "
+                "or environment variables."
+            )
+
+        # Configure Gemini SDK
+        genai.configure(api_key=gemini_api_key)
+        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
         # ================================================
         # BUILD THE PROMPT
@@ -246,26 +263,14 @@ Do NOT give a definitive diagnosis.
 Keep response clear and easy to understand."""
 
         # ================================================
-        # SEND PROMPT TO GROQ AND GET RESPONSE
-        # model="llama3-8b-8192" is a free, fast model
-        # available on Groq with no quota restrictions
-        # messages format: role "user" means we are
-        # sending a question, "content" is the question
+        # SEND PROMPT TO GEMINI AND GET RESPONSE
+        # generate_content sends your prompt and returns
+        # model-generated text for medical guidance output
         # ================================================
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            model="llama3-8b-8192",
-        )
+        response = gemini_model.generate_content(prompt)
 
-        # Extract the text response from Groq's reply
-        # choices[0] = first response (there is only one)
-        # message.content = the actual text answer
-        ai_output = chat_completion.choices[0].message.content
+        # Extract text safely from Gemini response
+        ai_output = getattr(response, "text", None) or "No AI response generated."
 
         # Display the AI response on the Streamlit page
         st.write(ai_output)

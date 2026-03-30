@@ -3,4 +3,5 @@ pandas
 numpy
 scikit-learn
 openpyxl
-groq
+python-dotenv
+google-generativeai
