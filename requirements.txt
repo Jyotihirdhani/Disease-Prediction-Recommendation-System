@@ -56,3 +56,9 @@ tzdata==2025.3
 urllib3==2.6.3
 watchdog==6.0.0
 websockets==16.0
+streamlit
+pandas
+numpy
+scikit-learn
+openpyxl
+google-genai
