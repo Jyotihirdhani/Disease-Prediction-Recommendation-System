@@ -753,9 +753,7 @@ Kisi qualified doctor se zaroor milein.
     # st.info() ek blue information box hai
     st.divider()
     st.info(
-        "⚠️ DISCLAIMER: Ye ek educational tool hai. "
-        "Ye professional medical advice, diagnosis ya treatment ka substitute NAHI hai. "
-        "Hamesha ek qualified doctor se milein."
+        "⚠️ DISCLAIMER: This is an AI educational tool. please consult a doctor."
     )
 
 
