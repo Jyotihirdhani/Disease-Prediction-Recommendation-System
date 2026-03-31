@@ -1,212 +1,316 @@
-# Import Streamlit for building the web-based UI
+# ================================================
+# IMPORTS
+# streamlit  → builds the web UI
+# pandas     → reads Excel hospital data
+# logging    → tracks errors and info messages
+# re         → cleans user input text
+# time       → adds delay between API retries
+# os         → handles file paths
+# sqlite3    → saves user data to local database
+# google.genai → connects to Gemini AI API
+# ================================================
 import streamlit as st
-
-# Import pandas for data handling (Excel, DataFrames)
 import pandas as pd
-
-# Import logging for application-level logs and debugging
 import logging
-
-# Import regex module for input sanitization
 import re
-
-# Import time module for retry delays
 import time
-
-# Import OS module for file path handling
 import os
-
-# Import Google Gemini AI SDK
+import sqlite3
 from google import genai
-
-# Import Gemini configuration types
 from google.genai import types
 
-
-# ==========================================
-# 1. SYSTEM CONFIGURATION & LOGGING
-# ==========================================
-
-# Configure logging format and log level
+# ================================================
+# LOGGING SETUP
+# Logs messages with timestamp and level (INFO/ERROR)
+# Helps debug issues without crashing the app
+# ================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
-# Create a logger instance for this file
 logger = logging.getLogger(__name__)
 
-# Configure Streamlit page settings (title, icon, layout)
+# ================================================
+# PAGE CONFIGURATION
+# Sets browser tab title, icon, and layout
+# "centered" keeps everything neatly in the middle
+# ================================================
 st.set_page_config(
     page_title="Healthcare Disease Prediction System",
     page_icon="🩺",
     layout="centered"
 )
 
+# ================================================
+# DATABASE SETUP — SQLite Integration
+# This creates (or connects to) healthcare.db
+# Tables created only if they don't already exist
+# This runs once when the app starts
+#
+# TABLE: users
+#   Stores every patient who submits the form
+#   Fields: id, name, age, gender, city, state,
+#           symptoms, ai_result, timestamp
+# ================================================
+def init_database():
+    # Connect to healthcare.db (creates it if missing)
+    conn = sqlite3.connect("healthcare.db")
+    cursor = conn.cursor()
 
-# ==========================================
-# 2. DATA LAYER (Retrieval & Self-Healing)
-# ==========================================
+    # Create users table if it does not exist yet
+    # Each row = one patient prediction session
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            name      TEXT,
+            age       INTEGER,
+            gender    TEXT,
+            city      TEXT,
+            state     TEXT,
+            symptoms  TEXT,
+            ai_result TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-# Cache the data so it is loaded only once (performance optimization)
+    # Save changes and close connection
+    conn.commit()
+    conn.close()
+
+def save_to_database(name, age, gender, city, state, symptoms, ai_result):
+    # This function saves one patient record to SQLite
+    # Called after every successful AI analysis
+    try:
+        conn = sqlite3.connect("healthcare.db")
+        cursor = conn.cursor()
+
+        # Insert the patient's data as a new row
+        cursor.execute("""
+            INSERT INTO users (name, age, gender, city, state, symptoms, ai_result)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (name, age, gender, city, state, symptoms, ai_result))
+
+        # Commit saves the data permanently
+        conn.commit()
+        conn.close()
+        logger.info(f"Record saved for patient: {name}")
+
+    except Exception as e:
+        # Log the error but don't crash the app
+        logger.error(f"Database save failed: {e}")
+
+# Initialize database tables when app starts
+init_database()
+
+# ================================================
+# HOSPITAL DATA LOADER
+# @st.cache_data means this runs only ONCE
+# and the result is reused on every page reload
+# This improves performance significantly
+# ================================================
 @st.cache_data
 def load_hospital_data():
-    """Loads the local hospital database. Generates synthetic data if missing."""
-
-    # Get the directory where this Python file exists
+    # Get the folder where this app.py file lives
     base_path = os.path.dirname(os.path.abspath(__file__))
 
-    # Create full path to the hospital Excel file
+    # Build the full path to Hospitals_India.xlsx
     hosp_path = os.path.join(base_path, "Hospitals_India.xlsx")
-    
-    # If the hospital file does NOT exist, create mock data
-    if not os.path.exists(hosp_path):
-        logger.warning("Database missing. Bootstrapping synthetic data layer...")
 
-        # Synthetic hospital dataset
+    # If the Excel file is missing, create sample data
+    # This prevents crashes on first deployment
+    if not os.path.exists(hosp_path):
+        logger.warning("Hospital file missing. Creating sample data...")
+
+        # Sample hospital data for major Indian cities
         mock_data = {
             "hospital_name": [
                 "AIIMS Delhi", "Safdarjung Hospital", "Fortis Escorts",
-                "Apollo Hospitals", "Manipal Hospital", "Tata Memorial",
-                "Max Super Speciality", "Narayana Health"
+                "Ram Manohar Lohia Hospital", "Apollo Hospitals Chennai",
+                "Manipal Hospital Bangalore", "Tata Memorial Mumbai",
+                "Max Super Speciality Delhi", "Narayana Health Bangalore",
+                "KEM Hospital Mumbai", "PGIMER Chandigarh",
+                "SGPGI Lucknow", "NIMHANS Bangalore", "JIPMER Puducherry"
             ],
             "city": [
                 "Delhi", "Delhi", "Delhi",
-                "Chennai", "Bangalore", "Mumbai",
-                "Delhi", "Bangalore"
+                "Delhi", "Chennai",
+                "Bangalore", "Mumbai",
+                "Delhi", "Bangalore",
+                "Mumbai", "Chandigarh",
+                "Lucknow", "Bangalore", "Puducherry"
             ],
             "state": [
                 "Delhi", "Delhi", "Delhi",
-                "Tamil Nadu", "Karnataka", "Maharashtra",
-                "Delhi", "Karnataka"
+                "Delhi", "Tamil Nadu",
+                "Karnataka", "Maharashtra",
+                "Delhi", "Karnataka",
+                "Maharashtra", "Punjab",
+                "Uttar Pradesh", "Karnataka", "Puducherry"
             ],
             "specialization": [
-                "Multispecialty", "General", "Cardiology",
-                "Multispecialty", "Orthopedics", "Oncology",
-                "Neurology", "Cardiac Care"
+                "Multispecialty", "General Medicine", "Cardiology",
+                "General Medicine", "Multispecialty",
+                "Orthopedics", "Oncology",
+                "Neurology", "Cardiac Care",
+                "General Medicine", "Multispecialty",
+                "Multispecialty", "Neurology/Psychiatry", "Multispecialty"
             ],
             "address": [
                 "Ansari Nagar, New Delhi", "Ring Road, New Delhi",
-                "Okhla Road, New Delhi", "Greams Road, Chennai",
-                "HAL Airport Road, Bangalore", "Parel, Mumbai",
-                "Saket, New Delhi", "Bommasandra, Bangalore"
+                "Okhla Road, New Delhi", "Baba Kharak Singh Marg, Delhi",
+                "Greams Road, Chennai", "HAL Airport Road, Bangalore",
+                "Parel, Mumbai", "Saket, New Delhi",
+                "Bommasandra, Bangalore", "Acharya Donde Marg, Mumbai",
+                "Sector 12, Chandigarh", "Raebareli Road, Lucknow",
+                "Hosur Road, Bangalore", "Dhanvantri Nagar, Puducherry"
             ]
         }
 
-        # Try saving mock data to Excel
         try:
             pd.DataFrame(mock_data).to_excel(hosp_path, index=False)
         except Exception as e:
-            logger.error(f"Failed to bootstrap database: {e}")
+            logger.error(f"Could not create sample hospital file: {e}")
             return None
 
-    # Load hospital data from Excel
+    # Load the Excel file into a DataFrame
     try:
         df = pd.read_excel(hosp_path)
-
-        # Normalize column names (lowercase & trimmed)
+        # Normalize all column names: lowercase + no spaces
         df.columns = df.columns.str.lower().str.strip()
-
         return df
     except Exception as e:
-        logger.error(f"Data Layer Error: Could not load hospital database. {e}")
+        logger.error(f"Could not load hospital data: {e}")
         return None
 
-
+# ================================================
+# HOSPITAL FILTER FUNCTION
+# Searches hospital list by city first
+# Falls back to state-level if city not found
+# Returns a formatted string for the AI prompt
+# ================================================
 def get_local_hospitals(city: str, state: str, df: pd.DataFrame) -> str:
-    """Filters hospitals based on city and state."""
-
-    # If database is unavailable or empty
+    # Return early if no data available
     if df is None or df.empty:
-        return "No local database available."
+        return "No hospital database available."
 
     try:
-        # Match city (case-insensitive)
-        city_mask = (df["city"].astype(str).str.lower() == city.lower())
+        # Normalize city and state input for comparison
+        city_clean  = city.lower().strip()
+        state_clean = state.lower().strip()
 
-        # Match state (case-insensitive)
-        state_mask = (df["state"].astype(str).str.lower() == state.lower())
+        # Try to match both city AND state
+        city_mask  = df["city"].astype(str).str.lower().str.strip()  == city_clean
+        state_mask = df["state"].astype(str).str.lower().str.strip() == state_clean
+        matches    = df[city_mask & state_mask].head(5)
 
-        # Filter top 5 matching hospitals
-        matches = df[city_mask & state_mask].head(5)
-
-        # If no city-level match, fallback to state-level
+        # If no city match, try state only as fallback
         if matches.empty:
             matches = df[state_mask].head(5)
 
-        # If hospitals found, format response
+        # Format matched hospitals as bullet list
         if not matches.empty:
             return "\n".join(
-                f"- {row.get('hospital_name','Unknown')} "
-                f"({row.get('specialization','General')}, {row.get('address','N/A')})"
+                f"- {row.get('hospital_name', 'Unknown')} "
+                f"({row.get('specialization', 'General')}, "
+                f"{row.get('address', 'N/A')})"
                 for _, row in matches.iterrows()
             )
 
-        # If nothing found at all
-        return "No specific hospitals found in this region. Please consult the nearest government facility."
+        # Nothing found — return generic message
+        return "No specific hospitals found. Please visit the nearest government hospital."
 
     except Exception as e:
-        logger.error(f"Query Error: {e}")
+        logger.error(f"Hospital filter error: {e}")
         return "Error retrieving hospital data."
 
-
-# ==========================================
-# 3. AI LOGIC LAYER (Generation)
-# ==========================================
-
-# Cache AI client so it initializes only once
+# ================================================
+# AI CLIENT INITIALIZATION
+# @st.cache_resource means the client is created
+# only once and reused — saves memory and time
+# Reads the API key from Streamlit Secrets safely
+# ================================================
 @st.cache_resource
 def initialize_ai():
     try:
-        # Read Gemini API key securely from Streamlit secrets
         api_key = st.secrets["GEMINI_API_KEY"]
-
-        # Create and return Gemini client
         return genai.Client(api_key=api_key)
-
     except KeyError:
-        # Stop app if API key is missing
-        st.error("🚨 Configuration Error: GEMINI_API_KEY missing.")
+        st.error("🚨 GEMINI_API_KEY is missing from Streamlit Secrets.")
         st.stop()
 
-
+# ================================================
+# INPUT SANITIZER
+# Removes special characters that could cause
+# issues in the AI prompt (prompt injection risk)
+# Only keeps letters, numbers, spaces, commas,
+# dots, and hyphens — safe for all Indian names
+# ================================================
 def sanitize_input(text: str) -> str:
-    # Remove special characters to prevent prompt injection
-    return re.sub(r'[^a-zA-Z0-9\s,\.\-]', '', text).strip() if text else ""
+    if not text:
+        return ""
+    # Allow letters (including unicode for Indian names),
+    # numbers, spaces, commas, dots, hyphens
+    return re.sub(r'[^\w\s,\.\-]', '', text, flags=re.UNICODE).strip()
 
-
+# ================================================
+# GEMINI AI ANALYSIS FUNCTION
+# Sends patient data to Gemini and returns response
+# Retries up to 3 times if API fails temporarily
+# backoff_factor doubles wait time each retry
+# ================================================
 def generate_medical_analysis(client, name, age, gender, symptoms, hospital_context, max_retries=3):
 
-    # System-level instruction to control AI behavior
+    # ================================================
+    # SYSTEM INSTRUCTION
+    # Tells Gemini how to behave overall
+    # This is separate from the user message
+    # ================================================
     system_instruction = (
-        "You are a medical triage assistant for educational purposes only. "
-        "You must explicitly state that you are an AI and not a doctor. "
-        "Do not provide a definitive diagnosis."
+        "You are a helpful, friendly medical assistant for educational purposes. "
+        "You are NOT a doctor. Always remind the user to consult a real doctor. "
+        "Never provide a definitive diagnosis. "
+        "Keep your response short, clear, and in plain human language. "
+        "Avoid using heavy medical jargon."
     )
 
-    # Construct AI prompt with patient + hospital context
+    # ================================================
+    # PROMPT — SIMPLIFIED & HUMAN-FRIENDLY
+    # This replaces the old numbered format
+    # Response is now 3-4 short natural paragraphs:
+    #   Para 1: What the symptoms suggest (conditions)
+    #   Para 2: Basic medicines ONLY for mild conditions
+    #           (skip medicines for serious conditions)
+    #   Para 3: What to do right now (precautions)
+    #   Para 4: Which hospital to go to + disclaimer
+    # ================================================
     user_payload = f"""
-    Analyze the following patient data:
-    Name: {name}
-    Age: {age}
-    Gender: {gender}
-    Symptoms: {symptoms}
+A patient named {name}, aged {age}, gender {gender}, is experiencing: {symptoms}.
 
-    AVAILABLE LOCAL HOSPITALS:
-    {hospital_context}
+Please respond in 3 to 4 short, clear paragraphs in natural, simple language (no numbered lists, no bullet points, no medical jargon):
 
-    Provide the response strictly in this format:
-    1. Potential Conditions (List 3 possibilities)
-    2. Over-the-Counter (OTC) Recommendations for symptom relief
-    3. Immediate Precautions
-    4. Recommended Treatment Facility
-    5. When to seek emergency care
-    """
+Paragraph 1 — What could this be?
+Based on the symptoms, briefly mention 1 to 3 possible conditions in plain words. Be gentle and reassuring.
 
-    # Initial retry delay
+Paragraph 2 — What can help at home?
+If the condition seems mild (like fever, cold, cough, headache, acidity, mild pain), suggest common over-the-counter medicines like Paracetamol, ORS, antacids, etc. that are widely used in India.
+If the symptoms suggest something serious (like chest pain, jaundice, breathing difficulty, severe vomiting, high fever lasting more than 3 days), do NOT suggest medicines. Instead, clearly say the person should see a doctor immediately.
+
+Paragraph 3 — What should they do right now?
+Give 2 to 3 simple, practical precautions or immediate steps the patient should take today.
+
+Paragraph 4 — Where to go?
+From the hospitals listed below, recommend the most suitable one based on the condition.
+If none match, say: "Please visit your nearest government hospital or clinic."
+
+Nearby hospitals:
+{hospital_context}
+
+End with one short sentence disclaimer that this is educational only and not a substitute for a real doctor.
+"""
+
+    # Retry logic for temporary API failures
     backoff_factor = 2
 
-    # Retry loop for API failures
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -214,110 +318,201 @@ def generate_medical_analysis(client, name, age, gender, symptoms, hospital_cont
                 contents=user_payload,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.2
+                    # temperature=0.4 gives slightly warmer,
+                    # more natural language in responses
+                    temperature=0.4
                 )
             )
-
-            # Return AI-generated text
+            # Return the generated text if successful
             return response.text
 
         except Exception as e:
-            # Retry on rate-limit or server errors
+            # Retry only on rate-limit (429) or server (503) errors
             if "503" in str(e) or "429" in str(e):
-                logger.warning(f"Upstream bottleneck. Retrying in {backoff_factor}s...")
+                logger.warning(f"API retry {attempt + 1} in {backoff_factor}s...")
                 if attempt < max_retries - 1:
                     time.sleep(backoff_factor)
                     backoff_factor *= 2
                 else:
                     return None
             else:
+                logger.error(f"Gemini error: {e}")
                 return None
 
-
-# ==========================================
-# 4. USER INTERFACE
-# ==========================================
-
+# ================================================
+# MAIN APP FUNCTION
+# Builds and runs the entire Streamlit UI
+# ================================================
 def main():
-    # App title
-    st.title("Healthcare Disease Prediction System")
 
-    # App subtitle
-    st.caption("Secure, Educational System")
+    # Page heading and subtitle
+    st.title("🩺 Healthcare Disease Prediction System")
+    st.caption("AI-powered educational health assistant")
 
-    # Initialize Gemini AI
-    client = initialize_ai()
-
-    # Load hospital data
+    # Initialize AI client and hospital data
+    client      = initialize_ai()
     hospital_df = load_hospital_data()
 
-    # Warn user if hospital data is unavailable
+    # Warn if hospital file could not be loaded
     if hospital_df is None:
-        st.warning("⚠️ Hospital database offline. Location-based recommendations will be limited.")
+        st.warning("⚠️ Hospital database unavailable. Recommendations will be limited.")
 
-    # Create Streamlit form
+    # ================================================
+    # INPUT FORM
+    # st.form groups all inputs together
+    # Data is only submitted when button is clicked
+    # Two-column layout for a cleaner look
+    # ================================================
     with st.form("patient_form"):
-        st.subheader("Enter Patient Details Here")
+        st.subheader("👤 Patient Details")
 
-        # Two-column layout
+        # Two columns side by side
         col1, col2 = st.columns(2)
 
         with col1:
-            raw_name = st.text_input("Full Name")
-            raw_age = st.number_input("Age", min_value=0, max_value=120, step=1)
-            raw_city = st.text_input("City")
+            # Text input for patient name
+            raw_name   = st.text_input("Full Name")
+            # Number input for age (starts empty)
+            raw_age    = st.number_input("Age", min_value=0, max_value=120, step=1, value=0)
+            # City of the patient
+            raw_city   = st.text_input("City")
 
         with col2:
-            raw_gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"])
-            raw_state = st.text_input("State")
+            # Gender dropdown — first option is placeholder
+            raw_gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
+            # State of the patient
+            raw_state  = st.text_input("State")
 
-        st.subheader("Enter Disease Here")
-        raw_symptoms = st.text_area("Describe symptoms (e.g., fever, chest pain, nausea)")
+        st.subheader("🤒 Describe Your Symptoms")
 
-        submitted = st.form_submit_button("Analyze Disease", type="primary")
+        # Multi-line text area for symptoms
+        raw_symptoms = st.text_area(
+            "Describe symptoms (e.g., fever since 2 days, headache, nausea)",
+            height=100
+        )
 
-    # After form submission
+        # Submit button — triggers all logic below
+        submitted = st.form_submit_button("🔍 Analyze Health Condition", type="primary")
+
+    # ================================================
+    # FORM SUBMISSION LOGIC
+    # Runs only after the button is clicked
+    # ================================================
     if submitted:
-        # Validate mandatory fields
-        if not raw_name or raw_gender == "Select" or not raw_symptoms or not raw_city or not raw_state:
-            st.warning("⚠️ Please complete all required fields, including City and State.")
+
+        # Validate all required fields are filled
+        if (not raw_name or
+            raw_gender == "Select Gender" or
+            not raw_symptoms or
+            not raw_city or
+            not raw_state or
+            raw_age == 0):
+            st.warning("⚠️ Please fill in all required fields including Age, City and State.")
             return
 
-        # Sanitize user input
-        name, city, state = map(sanitize_input, [raw_name, raw_city, raw_state])
-        age = str(raw_age)
-        gender = sanitize_input(raw_gender)
+        # Sanitize inputs to remove unsafe characters
+        name     = sanitize_input(raw_name)
+        city     = sanitize_input(raw_city)
+        state    = sanitize_input(raw_state)
+        gender   = sanitize_input(raw_gender)
         symptoms = sanitize_input(raw_symptoms)
+        age      = int(raw_age)
 
-        # Fetch hospital context
+        # Get matching hospitals for this city/state
         hospital_context = get_local_hospitals(city, state, hospital_df)
 
-        # Run AI analysis
-        with st.spinner("Analyzing symptoms and routing local care facilities..."):
+        # Show the hospital context on screen for transparency
+        st.markdown("### 🏥 Nearby Hospitals Found")
+        if "No specific" in hospital_context or "No hospital" in hospital_context:
+            st.warning(hospital_context)
+        else:
+            st.info(hospital_context)
+
+        # Run AI analysis with a loading spinner
+        with st.spinner("Analyzing symptoms... please wait"):
             analysis = generate_medical_analysis(
                 client, name, age, gender, symptoms, hospital_context
             )
 
+        # If AI responded successfully
         if analysis:
-            st.success("Baseline ML Prediction is Done")
-            st.markdown("AI Medical Analysis")
+
+            st.markdown("### 🤖 AI Medical Analysis")
             st.write(analysis)
 
-            # Allow report download
+            # ================================================
+            # SAVE TO DATABASE
+            # Stores this session's data in healthcare.db
+            # This happens silently in the background
+            # User does not see any confirmation message
+            # unless you want to add one
+            # ================================================
+            save_to_database(name, age, gender, city, state, symptoms, analysis)
+
+            # ================================================
+            # DOWNLOAD REPORT BUTTON
+            # Creates a plain text report for the patient
+            # Includes all details + AI analysis
+            # File is named with patient name for easy ID
+            # ================================================
+            report = f"""
+=====================================
+  HEALTHCARE DISEASE PREDICTION REPORT
+=====================================
+
+PATIENT INFORMATION
+-------------------
+Name     : {name}
+Age      : {age}
+Gender   : {gender}
+Location : {city}, {state}
+
+REPORTED SYMPTOMS
+-----------------
+{symptoms}
+
+NEARBY HOSPITALS
+----------------
+{hospital_context}
+
+AI MEDICAL ANALYSIS
+-------------------
+{analysis}
+
+=====================================
+DISCLAIMER: This report is generated
+by an AI system for educational
+purposes only. It is NOT a medical
+diagnosis. Please consult a qualified
+medical professional for proper
+treatment and advice.
+=====================================
+"""
             st.download_button(
-                label="📄 Download Report",
-                data=f"CONFIDENTIAL REPORT FOR: {name}\nLOCATION: {city}, {state}\n\n{analysis}",
-                file_name=f"triage_report_{name.replace(' ', '_')}.txt",
+                label="📄 Download Health Report",
+                data=report,
+                file_name=f"health_report_{name.replace(' ', '_')}.txt",
                 mime="text/plain"
             )
+
         else:
-            st.error("❌ The AI service is currently unavailable. Please try again later.")
+            # Show error if AI failed after all retries
+            st.error("❌ AI analysis failed. Please try again in a moment.")
 
-    # Footer disclaimer
+    # ================================================
+    # FOOTER DISCLAIMER
+    # Always visible at the bottom of every page
+    # ================================================
     st.divider()
-    st.info("DISCLAIMER: Educational tool only. Not a substitute for professional medical advice.")
+    st.info(
+        "⚠️ DISCLAIMER: This is an educational tool only. "
+        "It is not a substitute for professional medical advice, "
+        "diagnosis, or treatment. Always consult a qualified doctor."
+    )
 
-
-# Entry point of the application
+# ================================================
+# ENTRY POINT
+# This runs the main() function when app starts
+# ================================================
 if __name__ == "__main__":
     main()
