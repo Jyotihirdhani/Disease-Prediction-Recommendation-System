@@ -1,14 +1,14 @@
 # ================================================
-# IMPORTS — Libraries required for UI, Data, and AI
+# IMPORTS — Libraries for UI, Data, and AI
 # ================================================
-import streamlit as st           # Web UI framework
-import pandas as pd              # Data handling (Excel & Tables)
-import sqlite3                   # Local Database management
-import logging                   # Error tracking
-import re                        # Input cleaning
-import time                      # Delay for API retries
-from google import genai         # Google Gemini AI SDK
-from google.genai import types   # AI configuration types
+import streamlit as st           # UI Framework
+import pandas as pd              # Data Handling
+import sqlite3                   # Local Database
+import logging                   # Error Tracking
+import re                        # Security Cleaning
+import time                      # API Retries
+from google import genai         # Google Gemini AI
+from google.genai import types   # AI Config Types
 
 # ================================================
 # LOGGING & PAGE CONFIG
@@ -19,15 +19,13 @@ logger = logging.getLogger(__name__)
 st.set_page_config(page_title="Healthcare System", page_icon="🩺", layout="wide")
 
 # ================================================
-# DATABASE & DATA MIGRATION LOGIC
+# DATABASE INITIALIZATION
 # ================================================
 def init_database():
-    # Database connection create karo
     conn = sqlite3.connect("healthcare.db")
     cursor = conn.cursor()
 
-    # 1. Hospital Table (Aligned with your Synopsis)
-    # lowercase 'hospital' table name ensures compatibility
+    # 1. hospital table (lowercase naming is safer)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS hospital (
             hospital_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,20 +37,15 @@ def init_database():
         )
     """)
 
-    # 2. User Table (User input store karne ke liye)
+    # 2. user table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT, 
-            age INTEGER, 
-            gender TEXT, 
-            city TEXT, 
-            state TEXT, 
-            symptoms TEXT
+            name TEXT, age INTEGER, gender TEXT, city TEXT, state TEXT, symptoms TEXT
         )
     """)
 
-    # 3. Report Table (AI response store karne ke liye)
+    # 3. report table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS report (
             report_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,99 +56,99 @@ def init_database():
         )
     """)
 
-    # ---- EXCEL MIGRATION (Check if data exists) ----
+    # ---- MIGRATION FROM EXCEL (30,000+ ROWS) ----
     cursor.execute("SELECT count(*) FROM hospital")
     if cursor.fetchone()[0] == 0:
         try:
-            # Note: Ensure this file is uploaded in your GitHub/Streamlit folder
+            # File name must be exactly hospital_directory.xlsx
             hosp_df = pd.read_excel("hospital_directory.xlsx")
+            # Rename columns to match database schema
             hosp_df = hosp_df.rename(columns={'hosp_name': 'hospital_name', 'hosp_id': 'hospital_id'})
             hosp_df.to_sql('hospital', conn, if_exists='append', index=False)
             logger.info("Successfully migrated hospitals to DB.")
         except Exception as e:
-            logger.error(f"Excel Migration Failed: {e}")
+            logger.error(f"Migration Failed: {e}")
 
     conn.commit()
     conn.close()
 
-# Start DB setup
+# Start DB check
 init_database()
 
 # ================================================
-# DATABASE HELPER FUNCTIONS
+# HELPER FUNCTIONS
 # ================================================
 
 def get_hospitals_from_db(city, state):
-    # User ke city/state search ke liye query
+    """Database se hospitals search karta hai lowercase logic ke saath."""
     conn = sqlite3.connect("healthcare.db")
-    query = "SELECT hospital_name, specialization, address FROM hospital WHERE LOWER(city)=LOWER(?) AND LOWER(state)=LOWER(?)"
-    df = pd.read_sql_query(query, conn, params=(city.strip(), state.strip()))
+    # search_city/state clean and lowercase
+    search_city = str(city).strip().lower()
+    search_state = str(state).strip().lower()
+    
+    query = "SELECT hospital_name, specialization, address FROM hospital WHERE LOWER(city) = ? AND LOWER(state) = ?"
+    df = pd.read_sql_query(query, conn, params=(search_city, search_state))
     conn.close()
     return df
 
 def save_submission(name, age, gender, city, state, symptoms, ai_analysis):
-    # User aur Report save karne ka naya method (Safer)
+    """User data aur AI analysis ko store karta hai."""
     try:
         conn = sqlite3.connect("healthcare.db")
         cursor = conn.cursor()
         
         # User details insert karein
-        cursor.execute("""
-            INSERT INTO user (name, age, gender, city, state, symptoms) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (name, age, gender, city, state, symptoms))
-        
-        last_id = cursor.lastrowid
+        cursor.execute("INSERT INTO user (name, age, gender, city, state, symptoms) VALUES (?,?,?,?,?,?)",
+                       (name, age, gender, city, state, symptoms))
+        last_user_id = cursor.lastrowid
         
         # Report details insert karein
-        cursor.execute("""
-            INSERT INTO report (user_id, analysis_text) 
-            VALUES (?, ?)
-        """, (last_id, ai_analysis))
+        cursor.execute("INSERT INTO report (user_id, analysis_text) VALUES (?,?)", 
+                       (last_user_id, ai_analysis))
         
         conn.commit()
         conn.close()
         return True
     except Exception as e:
-        logger.error(f"DB Save Error: {e}")
+        logger.error(f"Database Save Error: {e}")
         return False
 
-# ================================================
-# AI LOGIC (With Error Handling)
-# ================================================
 @st.cache_resource
 def initialize_ai():
+    """Gemini Client setup."""
     return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 def generate_medical_analysis(client, name, age, gender, symptoms, hospital_str):
-    system_instruction = "You are a friendly medical assistant. Recommend these hospitals: " + hospital_str
-    user_payload = f"Patient {name}, {age} years old, {gender}, has {symptoms}."
+    """Gemini API call with error handling."""
+    system_instruction = f"You are a friendly medical assistant. Recommend these hospitals: {hospital_str}"
+    user_payload = f"Patient: {name}, {age} years old, {gender}. Symptoms: {symptoms}."
     
     try:
-        # Switched to 1.5-flash as it is more stable on free tier
+        # Model: gemini-1.5-flash (Standard name)
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-1.5-flash', 
             contents=user_payload,
             config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.4)
         )
         return response.text
     except Exception as e:
-        # Error text catch karein taaki user ko crash na dikhe
         error_msg = str(e)
         if "429" in error_msg:
-            return "⚠️ AI Service Limit Reached. Please try again in a few minutes. (Daily quota exceeded)"
-        return f"AI analysis currently unavailable: {error_msg}"
+            return "⚠️ AI daily limit reached. Please wait 1 minute."
+        return f"AI Analysis Unavailable: {error_msg}"
 
 # ================================================
-# MAIN APP INTERFACE
+# MAIN APPLICATION
 # ================================================
 def main():
-    menu = st.sidebar.selectbox("Navigation", ["Home", "Admin Dashboard"])
+    # Sidebar for Navigation
+    menu = st.sidebar.selectbox("Navigation", ["Home / Patient Form", "Admin Dashboard"])
 
-    if menu == "Home":
+    if menu == "Home / Patient Form":
         st.title("🩺 Healthcare Prediction System")
         client = initialize_ai()
 
+        # GUI FORM
         with st.form("patient_form"):
             st.subheader("👤 Patient Details")
             col1, col2 = st.columns(2)
@@ -168,45 +161,52 @@ def main():
                 raw_state = st.text_input("State")
             
             raw_symptoms = st.text_area("Describe Symptoms")
-            submitted = st.form_submit_button("🔍 Analyze", type="primary")
+            submitted = st.form_submit_button("🔍 Analyze Health Condition", type="primary")
 
         if submitted:
+            # Validation
             if not raw_name or raw_gender == "Select Gender" or not raw_city:
                 st.warning("Please fill all required fields.")
             else:
-                # Sanitize inputs
+                # Sanitize and Clean inputs
                 name = re.sub(r'[^\w\s]', '', raw_name)
                 city, state, symptoms = raw_city.strip(), raw_state.strip(), raw_symptoms.strip()
                 
-                # Step 1: Search Hospitals
+                # 1. Search Hospitals from DB (30,000 rows)
                 hosp_df = get_hospitals_from_db(city, state)
                 hosp_context = ""
-                
+
                 if not hosp_df.empty:
-                    st.success(f"Found {len(hosp_df)} hospitals!")
-                    st.table(hosp_df.head(5))
+                    st.success(f"Found {len(hosp_df)} hospitals in {city}!")
+                    st.table(hosp_df.head(5)) # Display top 5
                     hosp_context = hosp_df.to_string()
                 else:
-                    st.warning("No specific hospitals found in this city.")
-                    hosp_context = "No local hospitals found. Advise nearest clinic."
+                    st.warning("No specific hospitals found in our records for this city.")
+                    hosp_context = "No specific nearby hospitals found in database."
 
-                # Step 2: AI Analysis
-                with st.spinner("AI is analyzing..."):
+                # 2. AI Analysis
+                with st.spinner("AI is analyzing your symptoms..."):
                     analysis = generate_medical_analysis(client, name, raw_age, raw_gender, symptoms, hosp_context)
-                    st.markdown("### 🤖 Analysis Result")
+                    st.markdown("### 🤖 AI Medical Analysis")
                     st.info(analysis)
                     
-                    # Step 3: Save to Database (Even if AI failed, user data is kept)
-                    success = save_submission(name, raw_age, raw_gender, city, state, symptoms, analysis)
-                    if success:
-                        st.caption("✅ Record saved in healthcare.db")
+                    # 3. Save EVERYTHING to Database
+                    save_submission(name, raw_age, raw_gender, city, state, symptoms, analysis)
+                    st.caption("✅ Record saved in healthcare.db")
 
     elif menu == "Admin Dashboard":
-        st.title("🔐 Admin Panel")
-        pwd = st.text_input("Password", type="password")
-        if pwd == "admin123":
+        st.title("🔐 Admin Access Only")
+        password = st.text_input("Enter Admin Password", type="password")
+        
+        if password == "admin123":
             conn = sqlite3.connect("healthcare.db")
-            # Show joined records
+            
+            # Show Data Statistics
+            hosp_count = pd.read_sql_query("SELECT count(*) as total FROM hospital", conn)['total'][0]
+            st.metric("Hospitals in Database", f"{hosp_count:,}")
+
+            # Show Recent Patient Records
+            st.subheader("📋 Recent Patient Reports")
             query = """
                 SELECT u.name, u.age, u.city, u.symptoms, r.analysis_text, r.timestamp 
                 FROM user u 
@@ -215,7 +215,10 @@ def main():
             """
             df = pd.read_sql_query(query, conn)
             st.dataframe(df)
+            
             conn.close()
+        elif password:
+            st.error("Incorrect Password")
 
 if __name__ == "__main__":
     main()
