@@ -1,5 +1,7 @@
 streamlit
-supabase
-google-genai
 pandas
+numpy
+scikit-learn
 openpyxl
+google-genai
+supabase
