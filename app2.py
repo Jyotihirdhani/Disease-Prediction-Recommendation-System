@@ -1,31 +1,15 @@
 # ================================================
-# IMPORTS — Yahan hum saare zaroori libraries load kar rahe hain
-# Bina in libraries ke code bilkul kaam nahi karega
+# IMPORTS
 # ================================================
-
-# streamlit → Web app ka UI banane ke liye
 import streamlit as st
-
-# pandas → Hospital data ko table format mein display karne ke liye
 import pandas as pd
-
-# logging → App ke andar kya ho raha hai wo track karne ke liye
 import logging
-
-# re → User ka input clean karne ke liye
 import re
-
-# time → Agar API fail ho to retry ke beech wait karne ke liye
 import time
-
-# datetime, pytz → IST timestamp generate karne ke liye
 from datetime import datetime
 import pytz
-
-# io → PDF ko memory mein banane ke liye (file save kiye bina)
 from io import BytesIO
 
-# reportlab → PDF generate karne ke liye
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -33,18 +17,13 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# google.genai → Google ka Gemini AI SDK
 from google import genai
 from google.genai import types
-
-# supabase → Supabase cloud database se connect karne ke liye
 from supabase import create_client, Client
 
 
 # ================================================
 # LOGGING SETUP
-# Jab bhi koi error aaye ya important event ho,
-# wo timestamp ke saath console mein print hoga
 # ================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -55,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 # ================================================
 # PAGE CONFIGURATION
-# Browser tab title, icon aur layout set karna
 # ================================================
 st.set_page_config(
     page_title="Healthcare Disease Prediction System",
@@ -66,25 +44,15 @@ st.set_page_config(
 
 # ================================================
 # IST TIMESTAMP FUNCTION
-# India ka time zone set karne ke liye
-# Supabase mein hamesha IST time save hoga
-# pytz library se "Asia/Kolkata" timezone use karte hain
 # ================================================
 def get_ist_timestamp():
-    # IST timezone object banao
     ist = pytz.timezone("Asia/Kolkata")
-    # Current time IST mein lo
     now_ist = datetime.now(ist)
-    # ISO format mein return karo — Supabase ise accept karta hai
     return now_ist.isoformat()
 
 
 # ================================================
 # HOSPITAL DATA — Hardcoded Fallback Dictionary
-# Ye tab use hogi jab Supabase se hospital data
-# fetch karna fail ho jaaye ya city match na ho
-# Primary → Supabase hospital table
-# Fallback → Ye dictionary
 # ================================================
 HOSPITAL_DATA = {
     "delhi": {
@@ -248,8 +216,6 @@ HOSPITAL_DATA = {
 
 # ================================================
 # SUPABASE CLIENT INITIALIZATION
-# @st.cache_resource — ek baar hi chalega, result reuse hoga
-# Streamlit Secrets se URL aur Key securely padhte hain
 # ================================================
 @st.cache_resource
 def initialize_supabase() -> Client:
@@ -264,10 +230,6 @@ def initialize_supabase() -> Client:
 
 # ================================================
 # SUPABASE — USER SAVE FUNCTION
-# Button click hote hi sabse pehle users table mein
-# patient ki basic details save karo
-# IST timestamp save hoga
-# Return: naya user_id (report table mein foreign key hoga)
 # ================================================
 def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symptoms):
     try:
@@ -298,8 +260,6 @@ def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symp
 
 # ================================================
 # SUPABASE — REPORT SAVE FUNCTION
-# AI analysis complete hone ke baad report table mein
-# saara data save karo including AI result
 # ================================================
 def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, state, symptoms, ai_result):
     try:
@@ -331,8 +291,6 @@ def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, 
 
 # ================================================
 # SUPABASE — HOSPITAL FETCH FUNCTION
-# Supabase ke hospital table se city aur state ke
-# basis pe hospitals fetch karo
 # ================================================
 def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
     try:
@@ -426,7 +384,6 @@ def generate_medical_analysis(client, name, age, gender, symptoms, hospital_cont
         "Avoid using heavy medical jargon. "
         "Always recommend the specific hospitals mentioned in the prompt."
     )
-
     user_payload = f"""
 A patient named {name}, aged {age}, gender {gender}, is experiencing: {symptoms}.
 
@@ -460,7 +417,6 @@ Nearby hospitals in {name}'s location:
 End with one short sentence disclaimer that this is educational only and
 not a substitute for a real doctor.
 """
-
     backoff_factor = 2
     for attempt in range(max_retries):
         try:
@@ -492,60 +448,37 @@ not a substitute for a real doctor.
 def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_context, analysis):
     buffer = BytesIO()
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=0.75 * inch,
-        bottomMargin=0.75 * inch
+        buffer, pagesize=A4,
+        leftMargin=0.75*inch, rightMargin=0.75*inch,
+        topMargin=0.75*inch,  bottomMargin=0.75*inch
     )
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle(
-        "TitleStyle",
-        parent=styles["Title"],
-        fontSize=18,
-        textColor=colors.HexColor("#1a1a2e"),
-        spaceAfter=6,
-        alignment=TA_CENTER,
-        fontName="Helvetica-Bold"
+        "TitleStyle", parent=styles["Title"],
+        fontSize=18, textColor=colors.HexColor("#1a1a2e"),
+        spaceAfter=6, alignment=TA_CENTER, fontName="Helvetica-Bold"
     )
     heading_style = ParagraphStyle(
-        "HeadingStyle",
-        parent=styles["Heading2"],
-        fontSize=12,
-        textColor=colors.HexColor("#16213e"),
-        spaceBefore=12,
-        spaceAfter=4,
-        fontName="Helvetica-Bold"
+        "HeadingStyle", parent=styles["Heading2"],
+        fontSize=12, textColor=colors.HexColor("#16213e"),
+        spaceBefore=12, spaceAfter=4, fontName="Helvetica-Bold"
     )
     body_style = ParagraphStyle(
-        "BodyStyle",
-        parent=styles["Normal"],
-        fontSize=10,
-        textColor=colors.HexColor("#2d2d2d"),
-        spaceAfter=6,
-        leading=14,
-        fontName="Helvetica"
+        "BodyStyle", parent=styles["Normal"],
+        fontSize=10, textColor=colors.HexColor("#2d2d2d"),
+        spaceAfter=6, leading=14, fontName="Helvetica"
     )
     disclaimer_style = ParagraphStyle(
-        "DisclaimerStyle",
-        parent=styles["Normal"],
-        fontSize=9,
-        textColor=colors.HexColor("#cc0000"),
-        spaceBefore=12,
-        spaceAfter=6,
-        alignment=TA_CENTER,
+        "DisclaimerStyle", parent=styles["Normal"],
+        fontSize=9, textColor=colors.HexColor("#cc0000"),
+        spaceBefore=12, spaceAfter=6, alignment=TA_CENTER,
         fontName="Helvetica-Oblique"
     )
     subtitle_style = ParagraphStyle(
-        "SubtitleStyle",
-        parent=styles["Normal"],
-        fontSize=10,
-        textColor=colors.HexColor("#555555"),
-        spaceAfter=4,
-        alignment=TA_CENTER,
-        fontName="Helvetica"
+        "SubtitleStyle", parent=styles["Normal"],
+        fontSize=10, textColor=colors.HexColor("#555555"),
+        spaceAfter=4, alignment=TA_CENTER, fontName="Helvetica"
     )
 
     ist = pytz.timezone("Asia/Kolkata")
@@ -555,9 +488,9 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
     story.append(Paragraph("🩺 Healthcare Disease Prediction Report", title_style))
     story.append(Paragraph("AI-Powered Educational Health Assistant", subtitle_style))
     story.append(Paragraph(f"Generated on: {report_time}", subtitle_style))
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.1*inch))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a1a2e")))
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.1*inch))
 
     story.append(Paragraph("Patient Information", heading_style))
     patient_data = [
@@ -567,48 +500,46 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         ["Gender",   gender],
         ["Location", f"{city}, {state}"],
     ]
-    patient_table = Table(patient_data, colWidths=[2 * inch, 4.5 * inch])
+    patient_table = Table(patient_data, colWidths=[2*inch, 4.5*inch])
     patient_table.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, 0),  colors.HexColor("#1a1a2e")),
-        ("TEXTCOLOR",    (0, 0), (-1, 0),  colors.white),
-        ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, 0),  10),
-        ("BACKGROUND",   (0, 1), (-1, -1), colors.HexColor("#f5f5f5")),
-        ("TEXTCOLOR",    (0, 1), (-1, -1), colors.HexColor("#2d2d2d")),
-        ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE",     (0, 1), (-1, -1), 10),
-        ("FONTNAME",     (0, 1), (0, -1),  "Helvetica-Bold"),
-        ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
-        ("ROWBACKGROUNDS",(0, 1),(-1, -1), [colors.HexColor("#f9f9f9"), colors.HexColor("#efefef")]),
-        ("TOPPADDING",   (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("BACKGROUND",    (0,0), (-1,0),  colors.HexColor("#1a1a2e")),
+        ("TEXTCOLOR",     (0,0), (-1,0),  colors.white),
+        ("FONTNAME",      (0,0), (-1,0),  "Helvetica-Bold"),
+        ("FONTSIZE",      (0,0), (-1,0),  10),
+        ("BACKGROUND",    (0,1), (-1,-1), colors.HexColor("#f5f5f5")),
+        ("TEXTCOLOR",     (0,1), (-1,-1), colors.HexColor("#2d2d2d")),
+        ("FONTNAME",      (0,1), (-1,-1), "Helvetica"),
+        ("FONTSIZE",      (0,1), (-1,-1), 10),
+        ("FONTNAME",      (0,1), (0,-1),  "Helvetica-Bold"),
+        ("GRID",          (0,0), (-1,-1), 0.5, colors.HexColor("#cccccc")),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.HexColor("#f9f9f9"), colors.HexColor("#efefef")]),
+        ("TOPPADDING",    (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
     ]))
     story.append(patient_table)
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.1*inch))
 
     story.append(Paragraph("Reported Symptoms", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
-    story.append(Spacer(1, 0.05 * inch))
+    story.append(Spacer(1, 0.05*inch))
     story.append(Paragraph(symptoms, body_style))
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.1*inch))
 
     story.append(Paragraph("Nearby Hospitals", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
-    story.append(Spacer(1, 0.05 * inch))
-    hospital_pdf_text = hospital_context.replace("\n", "<br/>")
-    story.append(Paragraph(hospital_pdf_text, body_style))
-    story.append(Spacer(1, 0.1 * inch))
+    story.append(Spacer(1, 0.05*inch))
+    story.append(Paragraph(hospital_context.replace("\n", "<br/>"), body_style))
+    story.append(Spacer(1, 0.1*inch))
 
     story.append(Paragraph("AI Medical Analysis", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
-    story.append(Spacer(1, 0.05 * inch))
-    analysis_clean = analysis.replace("\n", "<br/>").replace("*", "")
-    story.append(Paragraph(analysis_clean, body_style))
-    story.append(Spacer(1, 0.15 * inch))
+    story.append(Spacer(1, 0.05*inch))
+    story.append(Paragraph(analysis.replace("\n", "<br/>").replace("*", ""), body_style))
+    story.append(Spacer(1, 0.15*inch))
 
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cc0000")))
-    story.append(Spacer(1, 0.05 * inch))
+    story.append(Spacer(1, 0.05*inch))
     story.append(Paragraph(
         "⚠️ DISCLAIMER: This report is generated by an AI system for educational purposes only. "
         "It is NOT a medical diagnosis. Please consult a qualified medical professional "
@@ -622,25 +553,28 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
 
 
 # ================================================
-# FORM RESET FUNCTION — FIXED
+# FORM RESET FUNCTION — FINAL FIX
 #
-# BUG (old code): Used `del st.session_state[key]` for widget keys.
-# Deleting a key does NOT reset the widget — Streamlit re-uses the
-# last browser-rendered value on next run.
+# WHY THE PREVIOUS FIX STILL CRASHED:
+# Streamlit raises StreamlitAPIException if you SET a session_state
+# key that is currently bound to a live rendered widget — even with
+# direct assignment. This happens because during the button's
+# execution phase, the widgets from the current render cycle are
+# still "locked" to their keys.
 #
-# FIX: Explicitly SET each widget key to its desired default value.
-# On the next st.rerun(), Streamlit reads these values from session
-# state and renders the widgets with the correct blank/default state.
+# THE CORRECT FIX — "form_key counter" pattern:
+# We never touch widget keys at all. Instead we maintain a simple
+# integer counter `form_key` in session state. The st.form() uses
+# this counter as part of its key: f"patient_form_{form_key}".
+# When reset_form() increments the counter, on the next st.rerun()
+# Streamlit sees a completely new form key and remounts the entire
+# form from scratch with all widgets at their default values.
+# No widget key conflicts, no StreamlitAPIException.
 # ================================================
 def reset_form():
-    # Widget keys — set to their default/blank values
-    st.session_state.form_name     = ""
-    st.session_state.form_age      = 0
-    st.session_state.form_gender   = "Select Gender"
-    st.session_state.form_city     = ""
-    st.session_state.form_state    = ""
-    st.session_state.form_symptoms = ""
-    # Result/state keys — clear them
+    # Increment counter → triggers full form remount on next rerun
+    st.session_state.form_key += 1
+    # These are NOT widget-bound keys, so safe to set directly
     st.session_state.analysis_result        = None
     st.session_state.hospital_context_store = None
     st.session_state.hospital_list_store    = None
@@ -662,66 +596,48 @@ def main():
 
     # ================================================
     # SESSION STATE INITIALIZATION
-    # Non-widget keys — initialize only if absent
     # ================================================
-    if "form_submitted"         not in st.session_state:
+    if "form_key" not in st.session_state:
+        st.session_state.form_key = 0              # Counter for form remount
+    if "form_submitted" not in st.session_state:
         st.session_state.form_submitted = False
-    if "analysis_result"        not in st.session_state:
+    if "analysis_result" not in st.session_state:
         st.session_state.analysis_result = None
     if "hospital_context_store" not in st.session_state:
         st.session_state.hospital_context_store = None
-    if "hospital_list_store"    not in st.session_state:
+    if "hospital_list_store" not in st.session_state:
         st.session_state.hospital_list_store = None
-    if "user_id_store"          not in st.session_state:
+    if "user_id_store" not in st.session_state:
         st.session_state.user_id_store = None
-    if "pdf_buffer"             not in st.session_state:
+    if "pdf_buffer" not in st.session_state:
         st.session_state.pdf_buffer = None
 
     # ================================================
-    # WIDGET DEFAULT INITIALIZATION — FIXED
-    #
-    # Widget keys must be pre-seeded in session state so that
-    # reset_form() assignments (which SET these keys) are picked
-    # up correctly on rerun. Without this block, the first ever
-    # page load would have no session state for these keys, and
-    # Streamlit would ignore the values set by reset_form().
-    # ================================================
-    if "form_name" not in st.session_state:
-        st.session_state.form_name     = ""
-    if "form_age" not in st.session_state:
-        st.session_state.form_age      = 0
-    if "form_gender" not in st.session_state:
-        st.session_state.form_gender   = "Select Gender"
-    if "form_city" not in st.session_state:
-        st.session_state.form_city     = ""
-    if "form_state" not in st.session_state:
-        st.session_state.form_state    = ""
-    if "form_symptoms" not in st.session_state:
-        st.session_state.form_symptoms = ""
-
-    # ================================================
     # INPUT FORM
+    # The form key includes form_key counter.
+    # When reset_form() increments form_key, this becomes a new
+    # form on the next rerun — all fields reset to defaults.
+    # No individual widget keys needed at all.
     # ================================================
-    with st.form("patient_form"):
+    with st.form(key=f"patient_form_{st.session_state.form_key}"):
 
         st.subheader("👤 Patient Details")
 
         col1, col2 = st.columns(2)
 
         with col1:
-            raw_name = st.text_input("Full Name",    key="form_name")
-            raw_age  = st.number_input("Age", min_value=0, max_value=120, step=1, value=0, key="form_age")
-            raw_city = st.text_input("City",         key="form_city")
+            raw_name = st.text_input("Full Name")
+            raw_age  = st.number_input("Age", min_value=0, max_value=120, step=1, value=0)
+            raw_city = st.text_input("City")
 
         with col2:
-            raw_gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"], key="form_gender")
-            raw_state  = st.text_input("State",      key="form_state")
+            raw_gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
+            raw_state  = st.text_input("State")
 
         st.subheader("🤒 Describe Your Symptoms")
         raw_symptoms = st.text_area(
             "Describe symptoms (e.g., fever since 2 days, headache, nausea)",
-            height=100,
-            key="form_symptoms"
+            height=100
         )
 
         submitted = st.form_submit_button("🔍 Analyze Health Condition", type="primary")
@@ -820,15 +736,12 @@ def main():
                 st.download_button(
                     label="📥 Download Health Report (PDF)",
                     data=st.session_state.pdf_buffer,
-                    file_name=f"health_report_{st.session_state.get('form_name', 'patient')}.pdf",
+                    file_name=f"health_report_{st.session_state.get('user_id_store', 'patient')}.pdf",
                     mime="application/pdf",
                     on_click=reset_form
                 )
 
         with col_clear:
-            # ---- Manual Clear Button — FIXED ----
-            # Previously: reset_form() only deleted keys → widgets kept old values
-            # Now: reset_form() sets keys to defaults → st.rerun() picks them up
             if st.button("🔄 Clear Form / New Patient", type="secondary"):
                 reset_form()
                 st.rerun()
