@@ -271,11 +271,7 @@ def initialize_supabase() -> Client:
 # ================================================
 def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symptoms):
     try:
-        # IST timestamp lo
         ist_time = get_ist_timestamp()
-
-        # users table mein insert karo
-        # created_at mein IST time bhejo
         response = (
             supabase.table("users")
             .insert({
@@ -289,16 +285,12 @@ def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symp
             })
             .execute()
         )
-
-        # Insert successful — user_id return karo
         if response.data and len(response.data) > 0:
             user_id = response.data[0]["user_id"]
             logger.info(f"User saved to Supabase. user_id: {user_id}")
             return user_id
-
         logger.warning("User insert returned no data.")
         return None
-
     except Exception as e:
         logger.error(f"Supabase user save failed: {e}")
         return None
@@ -308,15 +300,10 @@ def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symp
 # SUPABASE — REPORT SAVE FUNCTION
 # AI analysis complete hone ke baad report table mein
 # saara data save karo including AI result
-# IST timestamp save hoga
-# user_id foreign key hai — users table se linked hai
 # ================================================
 def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, state, symptoms, ai_result):
     try:
-        # IST timestamp lo
         ist_time = get_ist_timestamp()
-
-        # report table mein insert karo
         response = (
             supabase.table("report")
             .insert({
@@ -332,14 +319,11 @@ def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, 
             })
             .execute()
         )
-
         if response.data and len(response.data) > 0:
             logger.info(f"Report saved to Supabase for user_id: {user_id}")
             return True
-
         logger.warning("Report insert returned no data.")
         return False
-
     except Exception as e:
         logger.error(f"Supabase report save failed: {e}")
         return False
@@ -349,9 +333,6 @@ def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, 
 # SUPABASE — HOSPITAL FETCH FUNCTION
 # Supabase ke hospital table se city aur state ke
 # basis pe hospitals fetch karo
-# Note: Schema mein "City" aur "State" capital hain
-# ilike → case-insensitive match karta hai
-# Agar data mile to return karo, nahi to None
 # ================================================
 def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
     try:
@@ -363,9 +344,7 @@ def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
             .limit(5)
             .execute()
         )
-
         if response.data and len(response.data) > 0:
-            # Supabase data ko hamare standard format mein convert karo
             hospitals = [
                 {
                     "name":    row.get("hospital_name", "Unknown"),
@@ -376,10 +355,8 @@ def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
             ]
             logger.info(f"Supabase se {len(hospitals)} hospitals mile: {city}, {state}")
             return hospitals
-
         logger.info(f"Supabase mein {city}, {state} ke hospitals nahi mile — fallback chalega")
         return None
-
     except Exception as e:
         logger.error(f"Supabase hospital fetch error: {e}")
         return None
@@ -387,51 +364,36 @@ def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
 
 # ================================================
 # HOSPITAL LOOKUP — Primary (Supabase) + Fallback (Dictionary)
-# Pehle Supabase try karo
-# Agar fail ya data na mile to dictionary use karo
-# Return: hospital_str (AI ke liye), hospital_list (display ke liye)
 # ================================================
 def get_local_hospitals(city: str, state: str, supabase: Client):
-
-    # Step 1: Supabase se fetch karo
     supabase_hospitals = fetch_hospitals_from_supabase(supabase, city, state)
-
     if supabase_hospitals:
         hospitals = supabase_hospitals
     else:
-        # Step 2: Dictionary fallback
         city_key  = city.lower().strip()
         state_key = state.lower().strip()
-
         if state_key not in HOSPITAL_DATA:
             fallback_msg = (
                 f"No hospital data found for '{state}'. "
                 "Please visit your nearest government hospital or local clinic."
             )
             return fallback_msg, []
-
         state_hospitals = HOSPITAL_DATA[state_key]
-
         if city_key in state_hospitals:
             hospitals = state_hospitals[city_key]
         else:
-            # City nahi mili — state ki pehli city use karo
             found_city = list(state_hospitals.keys())[0]
             hospitals  = state_hospitals[found_city]
 
-    # Hospital list ko AI prompt ke liye string mein convert karo
     hospital_str = "\n".join(
         f"- {h['name']} ({h['spec']}, {h['address']})"
         for h in hospitals
     )
-
     return hospital_str, hospitals
 
 
 # ================================================
 # AI CLIENT INITIALIZATION
-# @st.cache_resource — ek baar hi chalega
-# Streamlit Secrets se Gemini API key padhta hai
 # ================================================
 @st.cache_resource
 def initialize_ai():
@@ -445,9 +407,6 @@ def initialize_ai():
 
 # ================================================
 # INPUT SANITIZER
-# User ke input se harmful characters hatao
-# SQL injection aur prompt injection se bachao
-# flags=re.UNICODE → Indian names ke liye support
 # ================================================
 def sanitize_input(text: str) -> str:
     if not text:
@@ -457,13 +416,8 @@ def sanitize_input(text: str) -> str:
 
 # ================================================
 # GEMINI AI ANALYSIS FUNCTION
-# Patient ka data Gemini AI ko bhejta hai
-# max_retries=3 → 3 baar try karega agar fail ho
-# backoff_factor → 2s → 4s → 8s wait between retries
 # ================================================
 def generate_medical_analysis(client, name, age, gender, symptoms, hospital_context, max_retries=3):
-
-    # AI ko batata hai ki kaisa behave kare
     system_instruction = (
         "You are a helpful, friendly medical assistant for educational purposes. "
         "You are NOT a doctor. Always remind the user to consult a real doctor. "
@@ -473,8 +427,6 @@ def generate_medical_analysis(client, name, age, gender, symptoms, hospital_cont
         "Always recommend the specific hospitals mentioned in the prompt."
     )
 
-    # Ye wo message hai jo AI ko bheja jaata hai
-    # 4 paragraphs ka format — clear aur human-friendly
     user_payload = f"""
 A patient named {name}, aged {age}, gender {gender}, is experiencing: {symptoms}.
 
@@ -510,7 +462,6 @@ not a substitute for a real doctor.
 """
 
     backoff_factor = 2
-
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -522,7 +473,6 @@ not a substitute for a real doctor.
                 )
             )
             return response.text
-
         except Exception as e:
             if "503" in str(e) or "429" in str(e):
                 logger.warning(f"API retry {attempt + 1} in {backoff_factor}s...")
@@ -538,17 +488,9 @@ not a substitute for a real doctor.
 
 # ================================================
 # PDF GENERATION FUNCTION
-# reportlab library se PDF memory mein banate hain
-# BytesIO → File disk pe save nahi hoti, memory mein rahti hai
-# Streamlit download button ise directly use kar sakta hai
 # ================================================
 def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_context, analysis):
-
-    # PDF memory buffer mein banao — disk pe save nahi hoga
     buffer = BytesIO()
-
-    # A4 size PDF document create karo
-    # margins set karo — left, right, top, bottom
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -557,11 +499,8 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         topMargin=0.75 * inch,
         bottomMargin=0.75 * inch
     )
-
-    # Default styles lo aur custom styles banao
     styles = getSampleStyleSheet()
 
-    # Title style — bada heading ke liye
     title_style = ParagraphStyle(
         "TitleStyle",
         parent=styles["Title"],
@@ -571,8 +510,6 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         alignment=TA_CENTER,
         fontName="Helvetica-Bold"
     )
-
-    # Section heading style — har section ka heading
     heading_style = ParagraphStyle(
         "HeadingStyle",
         parent=styles["Heading2"],
@@ -582,8 +519,6 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         spaceAfter=4,
         fontName="Helvetica-Bold"
     )
-
-    # Normal body text style
     body_style = ParagraphStyle(
         "BodyStyle",
         parent=styles["Normal"],
@@ -593,8 +528,6 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         leading=14,
         fontName="Helvetica"
     )
-
-    # Disclaimer style — neeche ka warning text
     disclaimer_style = ParagraphStyle(
         "DisclaimerStyle",
         parent=styles["Normal"],
@@ -605,8 +538,6 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         alignment=TA_CENTER,
         fontName="Helvetica-Oblique"
     )
-
-    # Subtitle style — report title ke neeche chhota text
     subtitle_style = ParagraphStyle(
         "SubtitleStyle",
         parent=styles["Normal"],
@@ -617,14 +548,10 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         fontName="Helvetica"
     )
 
-    # IST timestamp lo report mein dikhane ke liye
     ist = pytz.timezone("Asia/Kolkata")
     report_time = datetime.now(ist).strftime("%d %B %Y, %I:%M %p IST")
-
-    # PDF ka content list — yahan saare elements add honge
     story = []
 
-    # ---- Title Section ----
     story.append(Paragraph("🩺 Healthcare Disease Prediction Report", title_style))
     story.append(Paragraph("AI-Powered Educational Health Assistant", subtitle_style))
     story.append(Paragraph(f"Generated on: {report_time}", subtitle_style))
@@ -632,10 +559,7 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a1a2e")))
     story.append(Spacer(1, 0.1 * inch))
 
-    # ---- Patient Information Table ----
     story.append(Paragraph("Patient Information", heading_style))
-
-    # Table data — label aur value pairs
     patient_data = [
         ["Field", "Details"],
         ["Name",     name],
@@ -643,23 +567,17 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         ["Gender",   gender],
         ["Location", f"{city}, {state}"],
     ]
-
-    # Table banao aur style karo
     patient_table = Table(patient_data, colWidths=[2 * inch, 4.5 * inch])
     patient_table.setStyle(TableStyle([
-        # Header row style
         ("BACKGROUND",   (0, 0), (-1, 0),  colors.HexColor("#1a1a2e")),
         ("TEXTCOLOR",    (0, 0), (-1, 0),  colors.white),
         ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
         ("FONTSIZE",     (0, 0), (-1, 0),  10),
-        # Data rows style
         ("BACKGROUND",   (0, 1), (-1, -1), colors.HexColor("#f5f5f5")),
         ("TEXTCOLOR",    (0, 1), (-1, -1), colors.HexColor("#2d2d2d")),
         ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
         ("FONTSIZE",     (0, 1), (-1, -1), 10),
-        # Label column bold karo
         ("FONTNAME",     (0, 1), (0, -1),  "Helvetica-Bold"),
-        # Grid aur padding
         ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
         ("ROWBACKGROUNDS",(0, 1),(-1, -1), [colors.HexColor("#f9f9f9"), colors.HexColor("#efefef")]),
         ("TOPPADDING",   (0, 0), (-1, -1), 6),
@@ -669,32 +587,26 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
     story.append(patient_table)
     story.append(Spacer(1, 0.1 * inch))
 
-    # ---- Symptoms Section ----
     story.append(Paragraph("Reported Symptoms", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
     story.append(Spacer(1, 0.05 * inch))
     story.append(Paragraph(symptoms, body_style))
     story.append(Spacer(1, 0.1 * inch))
 
-    # ---- Nearby Hospitals Section ----
     story.append(Paragraph("Nearby Hospitals", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
     story.append(Spacer(1, 0.05 * inch))
-    # Hospital context mein newlines ko <br/> se replace karo PDF ke liye
     hospital_pdf_text = hospital_context.replace("\n", "<br/>")
     story.append(Paragraph(hospital_pdf_text, body_style))
     story.append(Spacer(1, 0.1 * inch))
 
-    # ---- AI Medical Analysis Section ----
     story.append(Paragraph("AI Medical Analysis", heading_style))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
     story.append(Spacer(1, 0.05 * inch))
-    # Analysis mein newlines aur special chars handle karo
     analysis_clean = analysis.replace("\n", "<br/>").replace("*", "")
     story.append(Paragraph(analysis_clean, body_style))
     story.append(Spacer(1, 0.15 * inch))
 
-    # ---- Disclaimer Section ----
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cc0000")))
     story.append(Spacer(1, 0.05 * inch))
     story.append(Paragraph(
@@ -704,52 +616,53 @@ def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_conte
         disclaimer_style
     ))
 
-    # PDF build karo — sab elements render honge
     doc.build(story)
-
-    # Buffer ko shuru se padhne ke liye reset karo
     buffer.seek(0)
     return buffer
 
 
 # ================================================
-# FORM RESET FUNCTION
-# st.session_state use karke form reset karte hain
-# Streamlit mein form clear karne ka standard tarika
-# Har field ke liye session state key reset hoti hai
+# FORM RESET FUNCTION — FIXED
+#
+# BUG (old code): Used `del st.session_state[key]` for widget keys.
+# Deleting a key does NOT reset the widget — Streamlit re-uses the
+# last browser-rendered value on next run.
+#
+# FIX: Explicitly SET each widget key to its desired default value.
+# On the next st.rerun(), Streamlit reads these values from session
+# state and renders the widgets with the correct blank/default state.
 # ================================================
 def reset_form():
-    # In keys ko delete karo — Streamlit next render pe blank dikhayega
-    keys_to_clear = [
-        "form_name", "form_age", "form_gender",
-        "form_city", "form_state", "form_symptoms",
-        "analysis_result", "hospital_context_store",
-        "hospital_list_store", "user_id_store",
-        "pdf_buffer", "form_submitted"
-    ]
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+    # Widget keys — set to their default/blank values
+    st.session_state.form_name     = ""
+    st.session_state.form_age      = 0
+    st.session_state.form_gender   = "Select Gender"
+    st.session_state.form_city     = ""
+    st.session_state.form_state    = ""
+    st.session_state.form_symptoms = ""
+    # Result/state keys — clear them
+    st.session_state.analysis_result        = None
+    st.session_state.hospital_context_store = None
+    st.session_state.hospital_list_store    = None
+    st.session_state.user_id_store          = None
+    st.session_state.pdf_buffer             = None
+    st.session_state.form_submitted         = False
 
 
 # ================================================
 # MAIN FUNCTION
-# Poora Streamlit UI yahan build hota hai
 # ================================================
 def main():
 
     st.title("🩺 Healthcare Disease Prediction System")
     st.caption("AI-powered educational health assistant")
 
-    # AI aur Supabase clients initialize karo
     client   = initialize_ai()
     supabase = initialize_supabase()
 
     # ================================================
     # SESSION STATE INITIALIZATION
-    # Session state variables jo page reloads ke beech
-    # data hold karte hain
-    # Agar exist nahi karte to default values set karo
+    # Non-widget keys — initialize only if absent
     # ================================================
     if "form_submitted"         not in st.session_state:
         st.session_state.form_submitted = False
@@ -765,8 +678,29 @@ def main():
         st.session_state.pdf_buffer = None
 
     # ================================================
+    # WIDGET DEFAULT INITIALIZATION — FIXED
+    #
+    # Widget keys must be pre-seeded in session state so that
+    # reset_form() assignments (which SET these keys) are picked
+    # up correctly on rerun. Without this block, the first ever
+    # page load would have no session state for these keys, and
+    # Streamlit would ignore the values set by reset_form().
+    # ================================================
+    if "form_name" not in st.session_state:
+        st.session_state.form_name     = ""
+    if "form_age" not in st.session_state:
+        st.session_state.form_age      = 0
+    if "form_gender" not in st.session_state:
+        st.session_state.form_gender   = "Select Gender"
+    if "form_city" not in st.session_state:
+        st.session_state.form_city     = ""
+    if "form_state" not in st.session_state:
+        st.session_state.form_state    = ""
+    if "form_symptoms" not in st.session_state:
+        st.session_state.form_symptoms = ""
+
+    # ================================================
     # INPUT FORM
-    # st.form() — saara input ek saath submit hota hai
     # ================================================
     with st.form("patient_form"):
 
@@ -794,11 +728,9 @@ def main():
 
     # ================================================
     # FORM SUBMISSION LOGIC
-    # Button click hone ke baad ye block chalega
     # ================================================
     if submitted:
 
-        # Validation — saare fields filled hain ya nahi
         if (not raw_name or
             raw_gender == "Select Gender" or
             not raw_symptoms or
@@ -808,7 +740,6 @@ def main():
             st.warning("⚠️ Please fill in all required fields including Name, Age, Gender, City, State, and Symptoms.")
             return
 
-        # Inputs sanitize karo
         name     = sanitize_input(raw_name)
         city     = sanitize_input(raw_city)
         state    = sanitize_input(raw_state)
@@ -816,15 +747,11 @@ def main():
         symptoms = sanitize_input(raw_symptoms)
         age      = int(raw_age)
 
-        # ---- STEP 1: Real-time — User Supabase mein save karo ----
-        # Button click hote hi turant users table mein data jaata hai
-        # Ye AI analysis se pehle hota hai — real-time saving
         with st.spinner("Saving your details..."):
             user_id = save_user_to_supabase(
                 supabase, name, age, gender, city, state, symptoms
             )
 
-        # user_id session state mein store karo — baad mein report ke liye chahiye
         st.session_state.user_id_store = user_id
 
         if user_id:
@@ -832,14 +759,11 @@ def main():
         else:
             logger.warning("User could not be saved. Continuing without user_id.")
 
-        # ---- STEP 2: Hospitals fetch karo ----
         hospital_context, hospital_list = get_local_hospitals(city, state, supabase)
 
-        # Session state mein store karo — download ke time chahiye
         st.session_state.hospital_context_store = hospital_context
         st.session_state.hospital_list_store    = hospital_list
 
-        # ---- STEP 3: Hospitals screen pe dikhao ----
         st.markdown("### 🏥 Nearby Hospitals")
         if hospital_list:
             hospital_display = pd.DataFrame(hospital_list)
@@ -848,22 +772,18 @@ def main():
         else:
             st.warning(hospital_context)
 
-        # ---- STEP 4: AI Analysis ----
         with st.spinner("Analyzing your symptoms, please wait..."):
             analysis = generate_medical_analysis(
                 client, name, age, gender, symptoms, hospital_context
             )
 
         if analysis:
-            # Analysis session state mein store karo
             st.session_state.analysis_result = analysis
             st.session_state.form_submitted  = True
 
             st.markdown("### 🤖 AI Medical Analysis")
             st.write(analysis)
 
-            # ---- STEP 5: Real-time — Report Supabase mein save karo ----
-            # AI result milte hi turant report table mein save karo
             with st.spinner("Saving your report..."):
                 report_saved = save_report_to_supabase(
                     supabase,
@@ -876,13 +796,10 @@ def main():
             else:
                 logger.warning("Report could not be saved to Supabase.")
 
-            # ---- STEP 6: PDF generate karo aur session state mein rakho ----
-            # PDF memory mein banta hai — disk pe nahi jaata
             pdf_buf = generate_pdf_report(
                 name, age, gender, city, state,
                 symptoms, hospital_context, analysis
             )
-            # PDF buffer session state mein store karo
             st.session_state.pdf_buffer = pdf_buf.read()
 
         else:
@@ -890,23 +807,17 @@ def main():
 
     # ================================================
     # RESULTS DISPLAY + DOWNLOAD + RESET SECTION
-    # Ye tab dikhega jab analysis complete ho chuki ho
-    # session_state se data access karte hain
     # ================================================
     if st.session_state.form_submitted and st.session_state.analysis_result:
 
         st.markdown("---")
         st.markdown("### 📄 Download & Actions")
 
-        # Do columns — download button aur clear button side by side
         col_download, col_clear = st.columns(2)
 
         with col_download:
-            # ---- PDF Download Button ----
-            # PDF download hone ke baad form automatically reset hoga
             if st.session_state.pdf_buffer:
-                # Download button — on_click se form reset hoga download ke baad
-                downloaded = st.download_button(
+                st.download_button(
                     label="📥 Download Health Report (PDF)",
                     data=st.session_state.pdf_buffer,
                     file_name=f"health_report_{st.session_state.get('form_name', 'patient')}.pdf",
@@ -915,13 +826,13 @@ def main():
                 )
 
         with col_clear:
-            # ---- Manual Clear Button ----
-            # Agar user download na kare to manually form clear kar sake
+            # ---- Manual Clear Button — FIXED ----
+            # Previously: reset_form() only deleted keys → widgets kept old values
+            # Now: reset_form() sets keys to defaults → st.rerun() picks them up
             if st.button("🔄 Clear Form / New Patient", type="secondary"):
                 reset_form()
                 st.rerun()
 
-    # Footer disclaimer — hamesha dikhta hai
     st.divider()
     st.info(
         "⚠️ DISCLAIMER: This is an educational tool only. "
@@ -930,6 +841,5 @@ def main():
     )
 
 
-# Entry point
 if __name__ == "__main__":
     main()
