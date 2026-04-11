@@ -3,7 +3,7 @@
 # Bina in libraries ke code bilkul kaam nahi karega
 # ================================================
 
-# streamlit → Web app ka UI banane ke liye (form, buttons, text sab isi se)
+# streamlit → Web app ka UI banane ke liye
 import streamlit as st
 
 # pandas → Hospital data ko table format mein display karne ke liye
@@ -12,42 +12,50 @@ import pandas as pd
 # logging → App ke andar kya ho raha hai wo track karne ke liye
 import logging
 
-# re → User ka input clean karne ke liye (special characters hatane ke liye)
+# re → User ka input clean karne ke liye
 import re
 
 # time → Agar API fail ho to retry ke beech wait karne ke liye
 import time
 
-# google.genai → Google ka Gemini AI SDK — AI se response lene ke liye
+# datetime, pytz → IST timestamp generate karne ke liye
+from datetime import datetime
+import pytz
+
+# io → PDF ko memory mein banane ke liye (file save kiye bina)
+from io import BytesIO
+
+# reportlab → PDF generate karne ke liye
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+# google.genai → Google ka Gemini AI SDK
 from google import genai
 from google.genai import types
 
 # supabase → Supabase cloud database se connect karne ke liye
-# Yahan se hum data insert aur fetch karenge
 from supabase import create_client, Client
 
 
 # ================================================
 # LOGGING SETUP
-# Ye logging configuration hai
 # Jab bhi koi error aaye ya important event ho,
 # wo timestamp ke saath console mein print hoga
-# Agar ye na ho to debugging bahut mushkil ho jaati hai
 # ================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-# Is file ke liye ek logger object banao
 logger = logging.getLogger(__name__)
 
 
 # ================================================
 # PAGE CONFIGURATION
-# Streamlit ka page setup — browser tab title,
-# icon aur layout set karna
-# "centered" matlab content beech mein rahega
-# Agar ye set na karein to default ugly layout aata hai
+# Browser tab title, icon aur layout set karna
 # ================================================
 st.set_page_config(
     page_title="Healthcare Disease Prediction System",
@@ -57,23 +65,28 @@ st.set_page_config(
 
 
 # ================================================
+# IST TIMESTAMP FUNCTION
+# India ka time zone set karne ke liye
+# Supabase mein hamesha IST time save hoga
+# pytz library se "Asia/Kolkata" timezone use karte hain
+# ================================================
+def get_ist_timestamp():
+    # IST timezone object banao
+    ist = pytz.timezone("Asia/Kolkata")
+    # Current time IST mein lo
+    now_ist = datetime.now(ist)
+    # ISO format mein return karo — Supabase ise accept karta hai
+    return now_ist.isoformat()
+
+
+# ================================================
 # HOSPITAL DATA — Hardcoded Fallback Dictionary
-#
-# Ye dictionary tab use hogi jab Supabase se
-# hospital data fetch karna fail ho jaaye
-# Ya agar user ki city/state Supabase mein na mile
-#
-# Primary source → Supabase hospital table
-# Fallback source → Ye dictionary
-#
-# Structure:
-#   state_name (lowercase) ->
-#       city_name (lowercase) ->
-#           list of hospitals (name, specialization, address)
+# Ye tab use hogi jab Supabase se hospital data
+# fetch karna fail ho jaaye ya city match na ho
+# Primary → Supabase hospital table
+# Fallback → Ye dictionary
 # ================================================
 HOSPITAL_DATA = {
-
-    # ---- DELHI ----
     "delhi": {
         "delhi": [
             {"name": "AIIMS Delhi",                   "spec": "Multispecialty",       "address": "Ansari Nagar, New Delhi"},
@@ -83,8 +96,6 @@ HOSPITAL_DATA = {
             {"name": "Max Super Speciality Hospital",  "spec": "Neurology",            "address": "Saket, New Delhi"},
         ]
     },
-
-    # ---- MAHARASHTRA ----
     "maharashtra": {
         "mumbai": [
             {"name": "KEM Hospital",                   "spec": "General Medicine",     "address": "Acharya Donde Marg, Mumbai"},
@@ -108,8 +119,6 @@ HOSPITAL_DATA = {
             {"name": "Lata Mangeshkar Hospital",       "spec": "General Medicine",     "address": "Digdoh Hills, Nagpur"},
         ]
     },
-
-    # ---- KARNATAKA ----
     "karnataka": {
         "bangalore": [
             {"name": "Manipal Hospital",               "spec": "Multispecialty",       "address": "HAL Airport Road, Bangalore"},
@@ -133,8 +142,6 @@ HOSPITAL_DATA = {
             {"name": "Father Muller Hospital",         "spec": "Multispecialty",       "address": "Kankanady, Mangalore"},
         ]
     },
-
-    # ---- TAMIL NADU ----
     "tamil nadu": {
         "chennai": [
             {"name": "Apollo Hospitals Chennai",       "spec": "Multispecialty",       "address": "Greams Road, Chennai"},
@@ -158,8 +165,6 @@ HOSPITAL_DATA = {
             {"name": "Aravind Eye Hospital Madurai",   "spec": "Ophthalmology",        "address": "Anna Nagar, Madurai"},
         ]
     },
-
-    # ---- WEST BENGAL ----
     "west bengal": {
         "kolkata": [
             {"name": "SSKM Hospital",                  "spec": "General Medicine",     "address": "AJC Bose Road, Kolkata"},
@@ -176,8 +181,6 @@ HOSPITAL_DATA = {
             {"name": "Apollo Clinic Siliguri",         "spec": "General Medicine",     "address": "Sevoke Road, Siliguri"},
         ]
     },
-
-    # ---- UTTAR PRADESH ----
     "uttar pradesh": {
         "lucknow": [
             {"name": "SGPGI",                          "spec": "Multispecialty",       "address": "Raebareli Road, Lucknow"},
@@ -201,8 +204,6 @@ HOSPITAL_DATA = {
             {"name": "Apollo Clinic Varanasi",         "spec": "General Medicine",     "address": "Varanasi, Uttar Pradesh"},
         ]
     },
-
-    # ---- GUJARAT ----
     "gujarat": {
         "ahmedabad": [
             {"name": "Civil Hospital Ahmedabad",       "spec": "General Medicine",     "address": "Asarwa, Ahmedabad"},
@@ -226,8 +227,6 @@ HOSPITAL_DATA = {
             {"name": "Baroda Medical College",         "spec": "General Medicine",     "address": "Fatehgunj, Vadodara"},
         ]
     },
-
-    # ---- RAJASTHAN ----
     "rajasthan": {
         "jaipur": [
             {"name": "SMS Hospital",                   "spec": "General Medicine",     "address": "JLN Marg, Jaipur"},
@@ -249,22 +248,14 @@ HOSPITAL_DATA = {
 
 # ================================================
 # SUPABASE CLIENT INITIALIZATION
-# @st.cache_resource — ye ek baar hi chalega
-# aur result reuse hoga — baar baar connection
-# banana expensive hota hai isliye cache karte hain
-#
-# Supabase URL aur Key Streamlit Secrets se padhte hain
-# Ye keys GitHub pe visible nahi hoti — secure hai
-#
-# Agar keys missing ho to app ruk jaayegi
+# @st.cache_resource — ek baar hi chalega, result reuse hoga
+# Streamlit Secrets se URL aur Key securely padhte hain
 # ================================================
 @st.cache_resource
 def initialize_supabase() -> Client:
     try:
-        # Streamlit Secrets se Supabase URL aur Key lo
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-        # Supabase client banao aur return karo
         return create_client(url, key)
     except KeyError as e:
         st.error(f"🚨 Configuration Error: {e} is missing from Streamlit Secrets.")
@@ -272,38 +263,109 @@ def initialize_supabase() -> Client:
 
 
 # ================================================
+# SUPABASE — USER SAVE FUNCTION
+# Button click hote hi sabse pehle users table mein
+# patient ki basic details save karo
+# IST timestamp save hoga
+# Return: naya user_id (report table mein foreign key hoga)
+# ================================================
+def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symptoms):
+    try:
+        # IST timestamp lo
+        ist_time = get_ist_timestamp()
+
+        # users table mein insert karo
+        # created_at mein IST time bhejo
+        response = (
+            supabase.table("users")
+            .insert({
+                "name":       name,
+                "age":        age,
+                "gender":     gender,
+                "city":       city,
+                "state":      state,
+                "symptoms":   symptoms,
+                "created_at": ist_time
+            })
+            .execute()
+        )
+
+        # Insert successful — user_id return karo
+        if response.data and len(response.data) > 0:
+            user_id = response.data[0]["user_id"]
+            logger.info(f"User saved to Supabase. user_id: {user_id}")
+            return user_id
+
+        logger.warning("User insert returned no data.")
+        return None
+
+    except Exception as e:
+        logger.error(f"Supabase user save failed: {e}")
+        return None
+
+
+# ================================================
+# SUPABASE — REPORT SAVE FUNCTION
+# AI analysis complete hone ke baad report table mein
+# saara data save karo including AI result
+# IST timestamp save hoga
+# user_id foreign key hai — users table se linked hai
+# ================================================
+def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, state, symptoms, ai_result):
+    try:
+        # IST timestamp lo
+        ist_time = get_ist_timestamp()
+
+        # report table mein insert karo
+        response = (
+            supabase.table("report")
+            .insert({
+                "user_id":                   user_id,
+                "name":                      name,
+                "age":                       age,
+                "gender":                    gender,
+                "city":                      city,
+                "state":                     state,
+                "symptoms":                  symptoms,
+                "analysed_health_condition": ai_result,
+                "timestamp":                 ist_time
+            })
+            .execute()
+        )
+
+        if response.data and len(response.data) > 0:
+            logger.info(f"Report saved to Supabase for user_id: {user_id}")
+            return True
+
+        logger.warning("Report insert returned no data.")
+        return False
+
+    except Exception as e:
+        logger.error(f"Supabase report save failed: {e}")
+        return False
+
+
+# ================================================
 # SUPABASE — HOSPITAL FETCH FUNCTION
-# Primary method: Supabase ke hospital table se
-# city aur state ke basis pe hospitals dhundho
-#
-# Teri table ka schema:
-#   hospital_id, hospital_name, specialization,
-#   address, "State", "City"
-#
-# Note: "State" aur "City" columns capital letters mein hain
-# Supabase query mein exact column name use karna zaroori hai
-#
-# Agar Supabase se data mile to return karo
-# Agar na mile to None return karo — fallback chalega
+# Supabase ke hospital table se city aur state ke
+# basis pe hospitals fetch karo
+# Note: Schema mein "City" aur "State" capital hain
+# ilike → case-insensitive match karta hai
+# Agar data mile to return karo, nahi to None
 # ================================================
 def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
     try:
-        # Supabase ke hospital table se query karo
-        # .eq() → exact match filter hai
-        # "City" aur "State" — exact column names as in schema (capital)
-        # ilike → case-insensitive match karta hai (Delhi = delhi = DELHI)
         response = (
             supabase.table("hospital")
-            .select("hospital_name, specialization, address, \"City\", \"State\"")
+            .select("hospital_name, specialization, address")
             .ilike("City", city.strip())
             .ilike("State", state.strip())
             .limit(5)
             .execute()
         )
 
-        # Agar data mila to list of dicts return karo
         if response.data and len(response.data) > 0:
-            # Supabase response ko hamare standard format mein convert karo
+            # Supabase data ko hamare standard format mein convert karo
             hospitals = [
                 {
                     "name":    row.get("hospital_name", "Unknown"),
@@ -312,50 +374,35 @@ def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
                 }
                 for row in response.data
             ]
-            logger.info(f"Supabase se {len(hospitals)} hospitals mile for {city}, {state}")
+            logger.info(f"Supabase se {len(hospitals)} hospitals mile: {city}, {state}")
             return hospitals
 
-        # Data nahi mila — None return karo taaki fallback chale
-        logger.info(f"Supabase mein {city}, {state} ke liye hospitals nahi mile — fallback chalega")
+        logger.info(f"Supabase mein {city}, {state} ke hospitals nahi mile — fallback chalega")
         return None
 
     except Exception as e:
-        # Koi bhi error aaye to log karo aur None return karo
-        # App crash nahi karni chahiye sirf hospital fetch fail hone se
         logger.error(f"Supabase hospital fetch error: {e}")
         return None
 
 
 # ================================================
-# HOSPITAL LOOKUP FUNCTION — Primary + Fallback
-#
-# Ye function pehle Supabase se hospitals fetch karne
-# ki koshish karta hai (primary source)
-#
-# Agar Supabase se data na aaye to HOSPITAL_DATA
-# dictionary se hospitals dikhata hai (fallback)
-#
-# Return karta hai do cheezein:
-#   hospital_str  → String format — AI prompt mein use hogi
-#   hospital_list → List format — screen pe table dikhane ke liye
+# HOSPITAL LOOKUP — Primary (Supabase) + Fallback (Dictionary)
+# Pehle Supabase try karo
+# Agar fail ya data na mile to dictionary use karo
+# Return: hospital_str (AI ke liye), hospital_list (display ke liye)
 # ================================================
 def get_local_hospitals(city: str, state: str, supabase: Client):
 
-    # ---- Step 1: Supabase se fetch karne ki koshish karo ----
-    # Ye primary source hai — real database data
+    # Step 1: Supabase se fetch karo
     supabase_hospitals = fetch_hospitals_from_supabase(supabase, city, state)
 
     if supabase_hospitals:
-        # Supabase se data mila — ise use karo
         hospitals = supabase_hospitals
-
     else:
-        # ---- Step 2: Supabase fail hua — dictionary fallback ----
-        # User ka input lowercase aur trim karo matching ke liye
+        # Step 2: Dictionary fallback
         city_key  = city.lower().strip()
         state_key = state.lower().strip()
 
-        # Check karo state dictionary mein hai ya nahi
         if state_key not in HOSPITAL_DATA:
             fallback_msg = (
                 f"No hospital data found for '{state}'. "
@@ -365,125 +412,31 @@ def get_local_hospitals(city: str, state: str, supabase: Client):
 
         state_hospitals = HOSPITAL_DATA[state_key]
 
-        # Exact city match try karo dictionary mein
         if city_key in state_hospitals:
             hospitals = state_hospitals[city_key]
         else:
-            # City nahi mili — state ki pehli available city use karo
+            # City nahi mili — state ki pehli city use karo
             found_city = list(state_hospitals.keys())[0]
             hospitals  = state_hospitals[found_city]
 
-    # ---- Hospital list ko AI prompt ke liye string mein convert karo ----
-    # Har hospital ek line mein: - Name (Specialization, Address)
+    # Hospital list ko AI prompt ke liye string mein convert karo
     hospital_str = "\n".join(
         f"- {h['name']} ({h['spec']}, {h['address']})"
         for h in hospitals
     )
 
-    # Dono return karo: string AI ke liye, list screen display ke liye
     return hospital_str, hospitals
 
 
 # ================================================
-# SUPABASE — USER DATA SAVE FUNCTION
-# Jab user form submit kare to pehle users table mein
-# basic details save karo aur naya user_id lo
-#
-# users table columns:
-#   user_id (auto), name, age, gender,
-#   state, city, symptoms, created_at (auto)
-#
-# Return karta hai: naya user_id jo report table mein use hoga
-# Agar fail ho to None return karo
-# ================================================
-def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symptoms):
-    try:
-        # users table mein naya record insert karo
-        # user_id aur created_at automatically set hote hain
-        response = (
-            supabase.table("users")
-            .insert({
-                "name":     name,
-                "age":      age,
-                "gender":   gender,
-                "city":     city,
-                "state":    state,
-                "symptoms": symptoms
-            })
-            .execute()
-        )
-
-        # Insert successful — naya user_id return karo
-        # response.data[0] mein inserted row ka data hota hai
-        if response.data and len(response.data) > 0:
-            user_id = response.data[0]["user_id"]
-            logger.info(f"User saved in Supabase with user_id: {user_id}")
-            return user_id
-
-        return None
-
-    except Exception as e:
-        logger.error(f"Supabase user save failed: {e}")
-        return None
-
-
-# ================================================
-# SUPABASE — REPORT DATA SAVE FUNCTION
-# AI analysis complete hone ke baad report table mein
-# saara data save karo including AI result
-#
-# report table columns:
-#   report_id (auto), user_id (FK), name, age,
-#   gender, state, city, symptoms,
-#   analysed_health_condition, timestamp (auto)
-#
-# user_id foreign key hai — users table se link hai
-# ================================================
-def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, state, symptoms, ai_result):
-    try:
-        # report table mein naya record insert karo
-        # report_id aur timestamp automatically set hote hain
-        response = (
-            supabase.table("report")
-            .insert({
-                "user_id":                    user_id,
-                "name":                       name,
-                "age":                        age,
-                "gender":                     gender,
-                "city":                       city,
-                "state":                      state,
-                "symptoms":                   symptoms,
-                "analysed_health_condition":  ai_result
-            })
-            .execute()
-        )
-
-        if response.data and len(response.data) > 0:
-            logger.info(f"Report saved in Supabase for user_id: {user_id}")
-            return True
-
-        return False
-
-    except Exception as e:
-        logger.error(f"Supabase report save failed: {e}")
-        return False
-
-
-# ================================================
 # AI CLIENT INITIALIZATION
-# @st.cache_resource — ye ek baar hi chalega
-# aur result reuse hoga — baar baar API connection
-# banana expensive hota hai isliye cache karte hain
-# Streamlit Secrets se API key securely padhta hai
-# Agar key missing ho to app ruk jaayegi
+# @st.cache_resource — ek baar hi chalega
+# Streamlit Secrets se Gemini API key padhta hai
 # ================================================
 @st.cache_resource
 def initialize_ai():
     try:
-        # Streamlit Secrets se Gemini API key lo
-        # Ye key GitHub pe visible nahi hoti — secure hai
         api_key = st.secrets["GEMINI_API_KEY"]
-        # Gemini client banao us key ke saath
         return genai.Client(api_key=api_key)
     except KeyError:
         st.error("🚨 Configuration Error: GEMINI_API_KEY is missing from Streamlit Secrets.")
@@ -492,36 +445,25 @@ def initialize_ai():
 
 # ================================================
 # INPUT SANITIZER
-# User jo bhi type karta hai wo hamesha safe nahi hota
-# Koi special characters type kar sakta hai jaise < > { }
-# Ye characters AI prompt ko break kar sakte hain
-# Ye function sirf safe characters allow karta hai:
-#   Letters, numbers, spaces, commas, dots, hyphens
-# flags=re.UNICODE → Indian names ke liye bhi kaam karega
+# User ke input se harmful characters hatao
+# SQL injection aur prompt injection se bachao
+# flags=re.UNICODE → Indian names ke liye support
 # ================================================
 def sanitize_input(text: str) -> str:
     if not text:
         return ""
-    # Sirf allowed characters rakho, baaki sab hatao
     return re.sub(r'[^\w\s,\.\-]', '', text, flags=re.UNICODE).strip()
 
 
 # ================================================
 # GEMINI AI ANALYSIS FUNCTION
-# Ye function patient ka data Gemini AI ko bhejta hai
-# aur medical analysis response wapas laata hai
-#
-# max_retries=3 → Agar API fail ho to 3 baar try karega
-# backoff_factor → Har retry mein wait time double hota hai
-#   2s → 4s → 8s — server ko recover karne ka time milta hai
-# Agar teeno attempts fail ho to None return hoga
+# Patient ka data Gemini AI ko bhejta hai
+# max_retries=3 → 3 baar try karega agar fail ho
+# backoff_factor → 2s → 4s → 8s wait between retries
 # ================================================
 def generate_medical_analysis(client, name, age, gender, symptoms, hospital_context, max_retries=3):
 
-    # ---- System Instruction ----
-    # Ye AI ko batata hai ki wo kaisa behave kare
-    # Friendly bano, simple language use karo,
-    # doctor nahi ho, definitive diagnosis mat do
+    # AI ko batata hai ki kaisa behave kare
     system_instruction = (
         "You are a helpful, friendly medical assistant for educational purposes. "
         "You are NOT a doctor. Always remind the user to consult a real doctor. "
@@ -531,14 +473,8 @@ def generate_medical_analysis(client, name, age, gender, symptoms, hospital_cont
         "Always recommend the specific hospitals mentioned in the prompt."
     )
 
-    # ---- User Prompt ----
     # Ye wo message hai jo AI ko bheja jaata hai
-    # Isme patient ka saara data hota hai
-    # Hum AI ko 4 paragraphs mein jawab dene ko kehte hain:
-    #   Para 1: Possible conditions kya ho sakte hain
-    #   Para 2: Ghar pe kya kiya ja sakta hai (mild ke liye OTC, serious ke liye doctor)
-    #   Para 3: Abhi kya karna chahiye (precautions)
-    #   Para 4: Kahan jaayein (hospital recommendation + disclaimer)
+    # 4 paragraphs ka format — clear aur human-friendly
     user_payload = f"""
 A patient named {name}, aged {age}, gender {gender}, is experiencing: {symptoms}.
 
@@ -573,15 +509,10 @@ End with one short sentence disclaimer that this is educational only and
 not a substitute for a real doctor.
 """
 
-    # Pehli retry ke liye 2 second wait
     backoff_factor = 2
 
-    # Retry loop — maximum 3 attempts
     for attempt in range(max_retries):
         try:
-            # Gemini ko request bhejo
-            # temperature=0.4 → Natural language ke liye
-            # 0 hota to robotic, 1 hota to bahut random responses aate
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=user_payload,
@@ -590,107 +521,284 @@ not a substitute for a real doctor.
                     temperature=0.4
                 )
             )
-            # Successful response ka text return karo
             return response.text
 
         except Exception as e:
-            # Rate limit (429) ya server error (503) pe retry karo
             if "503" in str(e) or "429" in str(e):
                 logger.warning(f"API retry {attempt + 1} in {backoff_factor}s...")
                 if attempt < max_retries - 1:
                     time.sleep(backoff_factor)
-                    backoff_factor *= 2  # Wait time double karo next retry ke liye
+                    backoff_factor *= 2
                 else:
-                    return None  # Teeno attempts fail — None return karo
+                    return None
             else:
-                # Koi aur error hai — log karo aur fail karo
                 logger.error(f"Gemini error: {e}")
                 return None
 
 
 # ================================================
+# PDF GENERATION FUNCTION
+# reportlab library se PDF memory mein banate hain
+# BytesIO → File disk pe save nahi hoti, memory mein rahti hai
+# Streamlit download button ise directly use kar sakta hai
+# ================================================
+def generate_pdf_report(name, age, gender, city, state, symptoms, hospital_context, analysis):
+
+    # PDF memory buffer mein banao — disk pe save nahi hoga
+    buffer = BytesIO()
+
+    # A4 size PDF document create karo
+    # margins set karo — left, right, top, bottom
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=0.75 * inch,
+        rightMargin=0.75 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch
+    )
+
+    # Default styles lo aur custom styles banao
+    styles = getSampleStyleSheet()
+
+    # Title style — bada heading ke liye
+    title_style = ParagraphStyle(
+        "TitleStyle",
+        parent=styles["Title"],
+        fontSize=18,
+        textColor=colors.HexColor("#1a1a2e"),
+        spaceAfter=6,
+        alignment=TA_CENTER,
+        fontName="Helvetica-Bold"
+    )
+
+    # Section heading style — har section ka heading
+    heading_style = ParagraphStyle(
+        "HeadingStyle",
+        parent=styles["Heading2"],
+        fontSize=12,
+        textColor=colors.HexColor("#16213e"),
+        spaceBefore=12,
+        spaceAfter=4,
+        fontName="Helvetica-Bold"
+    )
+
+    # Normal body text style
+    body_style = ParagraphStyle(
+        "BodyStyle",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=colors.HexColor("#2d2d2d"),
+        spaceAfter=6,
+        leading=14,
+        fontName="Helvetica"
+    )
+
+    # Disclaimer style — neeche ka warning text
+    disclaimer_style = ParagraphStyle(
+        "DisclaimerStyle",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#cc0000"),
+        spaceBefore=12,
+        spaceAfter=6,
+        alignment=TA_CENTER,
+        fontName="Helvetica-Oblique"
+    )
+
+    # Subtitle style — report title ke neeche chhota text
+    subtitle_style = ParagraphStyle(
+        "SubtitleStyle",
+        parent=styles["Normal"],
+        fontSize=10,
+        textColor=colors.HexColor("#555555"),
+        spaceAfter=4,
+        alignment=TA_CENTER,
+        fontName="Helvetica"
+    )
+
+    # IST timestamp lo report mein dikhane ke liye
+    ist = pytz.timezone("Asia/Kolkata")
+    report_time = datetime.now(ist).strftime("%d %B %Y, %I:%M %p IST")
+
+    # PDF ka content list — yahan saare elements add honge
+    story = []
+
+    # ---- Title Section ----
+    story.append(Paragraph("🩺 Healthcare Disease Prediction Report", title_style))
+    story.append(Paragraph("AI-Powered Educational Health Assistant", subtitle_style))
+    story.append(Paragraph(f"Generated on: {report_time}", subtitle_style))
+    story.append(Spacer(1, 0.1 * inch))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a1a2e")))
+    story.append(Spacer(1, 0.1 * inch))
+
+    # ---- Patient Information Table ----
+    story.append(Paragraph("Patient Information", heading_style))
+
+    # Table data — label aur value pairs
+    patient_data = [
+        ["Field", "Details"],
+        ["Name",     name],
+        ["Age",      str(age)],
+        ["Gender",   gender],
+        ["Location", f"{city}, {state}"],
+    ]
+
+    # Table banao aur style karo
+    patient_table = Table(patient_data, colWidths=[2 * inch, 4.5 * inch])
+    patient_table.setStyle(TableStyle([
+        # Header row style
+        ("BACKGROUND",   (0, 0), (-1, 0),  colors.HexColor("#1a1a2e")),
+        ("TEXTCOLOR",    (0, 0), (-1, 0),  colors.white),
+        ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, 0),  10),
+        # Data rows style
+        ("BACKGROUND",   (0, 1), (-1, -1), colors.HexColor("#f5f5f5")),
+        ("TEXTCOLOR",    (0, 1), (-1, -1), colors.HexColor("#2d2d2d")),
+        ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",     (0, 1), (-1, -1), 10),
+        # Label column bold karo
+        ("FONTNAME",     (0, 1), (0, -1),  "Helvetica-Bold"),
+        # Grid aur padding
+        ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("ROWBACKGROUNDS",(0, 1),(-1, -1), [colors.HexColor("#f9f9f9"), colors.HexColor("#efefef")]),
+        ("TOPPADDING",   (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+    ]))
+    story.append(patient_table)
+    story.append(Spacer(1, 0.1 * inch))
+
+    # ---- Symptoms Section ----
+    story.append(Paragraph("Reported Symptoms", heading_style))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
+    story.append(Spacer(1, 0.05 * inch))
+    story.append(Paragraph(symptoms, body_style))
+    story.append(Spacer(1, 0.1 * inch))
+
+    # ---- Nearby Hospitals Section ----
+    story.append(Paragraph("Nearby Hospitals", heading_style))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
+    story.append(Spacer(1, 0.05 * inch))
+    # Hospital context mein newlines ko <br/> se replace karo PDF ke liye
+    hospital_pdf_text = hospital_context.replace("\n", "<br/>")
+    story.append(Paragraph(hospital_pdf_text, body_style))
+    story.append(Spacer(1, 0.1 * inch))
+
+    # ---- AI Medical Analysis Section ----
+    story.append(Paragraph("AI Medical Analysis", heading_style))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
+    story.append(Spacer(1, 0.05 * inch))
+    # Analysis mein newlines aur special chars handle karo
+    analysis_clean = analysis.replace("\n", "<br/>").replace("*", "")
+    story.append(Paragraph(analysis_clean, body_style))
+    story.append(Spacer(1, 0.15 * inch))
+
+    # ---- Disclaimer Section ----
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cc0000")))
+    story.append(Spacer(1, 0.05 * inch))
+    story.append(Paragraph(
+        "⚠️ DISCLAIMER: This report is generated by an AI system for educational purposes only. "
+        "It is NOT a medical diagnosis. Please consult a qualified medical professional "
+        "for proper treatment and advice.",
+        disclaimer_style
+    ))
+
+    # PDF build karo — sab elements render honge
+    doc.build(story)
+
+    # Buffer ko shuru se padhne ke liye reset karo
+    buffer.seek(0)
+    return buffer
+
+
+# ================================================
+# FORM RESET FUNCTION
+# st.session_state use karke form reset karte hain
+# Streamlit mein form clear karne ka standard tarika
+# Har field ke liye session state key reset hoti hai
+# ================================================
+def reset_form():
+    # In keys ko delete karo — Streamlit next render pe blank dikhayega
+    keys_to_clear = [
+        "form_name", "form_age", "form_gender",
+        "form_city", "form_state", "form_symptoms",
+        "analysis_result", "hospital_context_store",
+        "hospital_list_store", "user_id_store",
+        "pdf_buffer", "form_submitted"
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
+# ================================================
 # MAIN FUNCTION
-# Poora Streamlit UI yahan build hota hai:
-#   1. Page title aur subtitle
-#   2. Supabase aur AI client initialize karna
-#   3. Patient input form
-#   4. Submit ke baad validation
-#   5. Supabase mein user data save karna
-#   6. Hospital dhundna (Supabase first, fallback second)
-#   7. AI analysis call karna
-#   8. Result dikhana
-#   9. Supabase mein report save karna
-#   10. Report download button
+# Poora Streamlit UI yahan build hota hai
 # ================================================
 def main():
 
-    # Page ka bada heading
     st.title("🩺 Healthcare Disease Prediction System")
-    # Chhota subtitle — app ka purpose batata hai
     st.caption("AI-powered educational health assistant")
 
-    # Gemini AI client initialize karo (cache hota hai — ek baar hi chalta hai)
-    client = initialize_ai()
-
-    # Supabase client initialize karo (cache hota hai — ek baar hi chalta hai)
+    # AI aur Supabase clients initialize karo
+    client   = initialize_ai()
     supabase = initialize_supabase()
 
     # ================================================
+    # SESSION STATE INITIALIZATION
+    # Session state variables jo page reloads ke beech
+    # data hold karte hain
+    # Agar exist nahi karte to default values set karo
+    # ================================================
+    if "form_submitted"         not in st.session_state:
+        st.session_state.form_submitted = False
+    if "analysis_result"        not in st.session_state:
+        st.session_state.analysis_result = None
+    if "hospital_context_store" not in st.session_state:
+        st.session_state.hospital_context_store = None
+    if "hospital_list_store"    not in st.session_state:
+        st.session_state.hospital_list_store = None
+    if "user_id_store"          not in st.session_state:
+        st.session_state.user_id_store = None
+    if "pdf_buffer"             not in st.session_state:
+        st.session_state.pdf_buffer = None
+
+    # ================================================
     # INPUT FORM
-    # st.form() ek container hai jisme saare inputs hain
-    # Ye ensure karta hai ki saara data ek saath submit ho
-    # Bina form ke har input change pe page reload hota
+    # st.form() — saara input ek saath submit hota hai
     # ================================================
     with st.form("patient_form"):
 
         st.subheader("👤 Patient Details")
 
-        # Do columns side by side — cleaner layout ke liye
-        # col1 mein left side fields, col2 mein right side fields
         col1, col2 = st.columns(2)
 
         with col1:
-            # Patient ka naam — report mein aur AI prompt mein use hoga
-            raw_name = st.text_input("Full Name")
-
-            # Patient ki umar — valid range 0 se 120
-            # value=0 matlab default empty (0 = age nahi bhari)
-            raw_age = st.number_input("Age", min_value=0, max_value=120, step=1, value=0)
-
-            # City — hospital filter ke liye zaroori
-            raw_city = st.text_input("City")
+            raw_name = st.text_input("Full Name",    key="form_name")
+            raw_age  = st.number_input("Age", min_value=0, max_value=120, step=1, value=0, key="form_age")
+            raw_city = st.text_input("City",         key="form_city")
 
         with col2:
-            # Gender dropdown — pehla option placeholder hai
-            # Agar "Select Gender" rahega to validation fail hogi
-            raw_gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"])
-
-            # State — hospital filter ke liye city ke saath use hoga
-            raw_state = st.text_input("State")
+            raw_gender = st.selectbox("Gender", ["Select Gender", "Male", "Female", "Other"], key="form_gender")
+            raw_state  = st.text_input("State",      key="form_state")
 
         st.subheader("🤒 Describe Your Symptoms")
-
-        # Multi-line text area — patient detail mein symptoms likh sakta hai
         raw_symptoms = st.text_area(
             "Describe symptoms (e.g., fever since 2 days, headache, nausea)",
-            height=100
+            height=100,
+            key="form_symptoms"
         )
 
-        # Submit button — iske click hone pe neeche ka saara logic chalega
-        # type="primary" → Button prominent/blue dikhega
         submitted = st.form_submit_button("🔍 Analyze Health Condition", type="primary")
 
     # ================================================
     # FORM SUBMISSION LOGIC
-    # Ye block sirf tab execute hoga jab user ne
-    # "Analyze Health Condition" button click kiya ho
+    # Button click hone ke baad ye block chalega
     # ================================================
     if submitted:
 
-        # ---- Validation ----
-        # Saare required fields filled hain ya nahi check karo
-        # Koi bhi empty raha to warning dikhao aur rok do
-        # raw_age == 0 matlab age nahi bhari gayi
+        # Validation — saare fields filled hain ya nahi
         if (not raw_name or
             raw_gender == "Select Gender" or
             not raw_symptoms or
@@ -700,9 +808,7 @@ def main():
             st.warning("⚠️ Please fill in all required fields including Name, Age, Gender, City, State, and Symptoms.")
             return
 
-        # ---- Sanitization ----
-        # User inputs se harmful/special characters hatao
-        # Ye security ke liye important hai
+        # Inputs sanitize karo
         name     = sanitize_input(raw_name)
         city     = sanitize_input(raw_city)
         state    = sanitize_input(raw_state)
@@ -710,118 +816,112 @@ def main():
         symptoms = sanitize_input(raw_symptoms)
         age      = int(raw_age)
 
-        # ---- Step 1: User ko Supabase users table mein save karo ----
-        # Button click hote hi pehla kaam — basic details save karna
-        # user_id wapas milega jo report table mein foreign key hoga
-        user_id = save_user_to_supabase(supabase, name, age, gender, city, state, symptoms)
+        # ---- STEP 1: Real-time — User Supabase mein save karo ----
+        # Button click hote hi turant users table mein data jaata hai
+        # Ye AI analysis se pehle hota hai — real-time saving
+        with st.spinner("Saving your details..."):
+            user_id = save_user_to_supabase(
+                supabase, name, age, gender, city, state, symptoms
+            )
+
+        # user_id session state mein store karo — baad mein report ke liye chahiye
+        st.session_state.user_id_store = user_id
 
         if user_id:
-            logger.info(f"User record created with ID: {user_id}")
+            logger.info(f"Real-time: User saved with ID {user_id}")
         else:
-            # User save nahi hua lekin app band mat karo
-            # Agla saara kaam phir bhi chalega
-            logger.warning("User record could not be saved to Supabase. Continuing...")
+            logger.warning("User could not be saved. Continuing without user_id.")
 
-        # ---- Step 2: Hospital Lookup ----
-        # Pehle Supabase hospital table se fetch karo
-        # Agar nahi mila to HOSPITAL_DATA dictionary fallback use hogi
-        # hospital_context → AI prompt mein bheja jaayega (string)
-        # hospital_list    → Screen pe table mein dikhaya jaayega (list)
+        # ---- STEP 2: Hospitals fetch karo ----
         hospital_context, hospital_list = get_local_hospitals(city, state, supabase)
 
-        # ---- Step 3: Hospitals Screen Pe Dikhao ----
-        st.markdown("### 🏥 Nearby Hospitals")
+        # Session state mein store karo — download ke time chahiye
+        st.session_state.hospital_context_store = hospital_context
+        st.session_state.hospital_list_store    = hospital_list
 
+        # ---- STEP 3: Hospitals screen pe dikhao ----
+        st.markdown("### 🏥 Nearby Hospitals")
         if hospital_list:
-            # List ko pandas DataFrame mein convert karo
-            # phir clean table format mein display karo
             hospital_display = pd.DataFrame(hospital_list)
-            # Column names rename karo — zyada readable lagein
             hospital_display.columns = ["Hospital Name", "Specialization", "Address"]
             st.table(hospital_display)
         else:
-            # Hospital nahi mila — warning dikhao
             st.warning(hospital_context)
 
-        # ---- Step 4: AI Analysis ----
-        # Spinner dikhao jabtak AI response generate ho raha hai
+        # ---- STEP 4: AI Analysis ----
         with st.spinner("Analyzing your symptoms, please wait..."):
             analysis = generate_medical_analysis(
                 client, name, age, gender, symptoms, hospital_context
             )
 
-        # ---- Step 5: Result Display ----
         if analysis:
+            # Analysis session state mein store karo
+            st.session_state.analysis_result = analysis
+            st.session_state.form_submitted  = True
 
             st.markdown("### 🤖 AI Medical Analysis")
             st.write(analysis)
 
-            # ---- Step 6: Report Supabase mein save karo ----
-            # AI result milne ke baad report table mein poora data save karo
-            # user_id foreign key hai jo users table se link karta hai
-            # Agar user_id None hai (user save fail hua tha) to 0 use karo
-            report_saved = save_report_to_supabase(
-                supabase,
-                user_id if user_id else 0,
-                name, age, gender, city, state, symptoms, analysis
-            )
+            # ---- STEP 5: Real-time — Report Supabase mein save karo ----
+            # AI result milte hi turant report table mein save karo
+            with st.spinner("Saving your report..."):
+                report_saved = save_report_to_supabase(
+                    supabase,
+                    user_id if user_id else 0,
+                    name, age, gender, city, state, symptoms, analysis
+                )
 
             if report_saved:
-                logger.info("Report successfully saved to Supabase.")
+                logger.info("Real-time: Report saved to Supabase successfully.")
             else:
                 logger.warning("Report could not be saved to Supabase.")
 
-            # ---- Step 7: Downloadable Report ----
-            # Patient ke liye ek plain text report banate hain
-            # Isme saari details aur AI analysis included hoti hai
-            report = f"""
-=====================================
-  HEALTHCARE DISEASE PREDICTION REPORT
-=====================================
-
-PATIENT INFORMATION
--------------------
-Name     : {name}
-Age      : {age}
-Gender   : {gender}
-Location : {city}, {state}
-
-REPORTED SYMPTOMS
------------------
-{symptoms}
-
-NEARBY HOSPITALS
-----------------
-{hospital_context}
-
-AI MEDICAL ANALYSIS
--------------------
-{analysis}
-
-=====================================
-DISCLAIMER: This report is generated
-by an AI system for educational
-purposes only. It is NOT a medical
-diagnosis. Please consult a qualified
-medical professional for proper
-treatment and advice.
-=====================================
-"""
-            # Download button — patient apni report save kar sake
-            st.download_button(
-                label="📄 Download Health Report",
-                data=report,
-                file_name=f"health_report_{name.replace(' ', '_')}.txt",
-                mime="text/plain"
+            # ---- STEP 6: PDF generate karo aur session state mein rakho ----
+            # PDF memory mein banta hai — disk pe nahi jaata
+            pdf_buf = generate_pdf_report(
+                name, age, gender, city, state,
+                symptoms, hospital_context, analysis
             )
+            # PDF buffer session state mein store karo
+            st.session_state.pdf_buffer = pdf_buf.read()
 
         else:
-            # AI ne response nahi diya — error message dikhao
             st.error("❌ AI analysis is currently unavailable. Please try again in a moment.")
 
-    # ---- Footer Disclaimer ----
-    # Ye hamesha page ke ekdum neeche dikhta hai
-    # st.divider() ek horizontal line hai sections separate karne ke liye
+    # ================================================
+    # RESULTS DISPLAY + DOWNLOAD + RESET SECTION
+    # Ye tab dikhega jab analysis complete ho chuki ho
+    # session_state se data access karte hain
+    # ================================================
+    if st.session_state.form_submitted and st.session_state.analysis_result:
+
+        st.markdown("---")
+        st.markdown("### 📄 Download & Actions")
+
+        # Do columns — download button aur clear button side by side
+        col_download, col_clear = st.columns(2)
+
+        with col_download:
+            # ---- PDF Download Button ----
+            # PDF download hone ke baad form automatically reset hoga
+            if st.session_state.pdf_buffer:
+                # Download button — on_click se form reset hoga download ke baad
+                downloaded = st.download_button(
+                    label="📥 Download Health Report (PDF)",
+                    data=st.session_state.pdf_buffer,
+                    file_name=f"health_report_{st.session_state.get('form_name', 'patient')}.pdf",
+                    mime="application/pdf",
+                    on_click=reset_form
+                )
+
+        with col_clear:
+            # ---- Manual Clear Button ----
+            # Agar user download na kare to manually form clear kar sake
+            if st.button("🔄 Clear Form / New Patient", type="secondary"):
+                reset_form()
+                st.rerun()
+
+    # Footer disclaimer — hamesha dikhta hai
     st.divider()
     st.info(
         "⚠️ DISCLAIMER: This is an educational tool only. "
@@ -830,13 +930,6 @@ treatment and advice.
     )
 
 
-# ================================================
-# ENTRY POINT
-# Jab Python is file ko directly run karta hai to
-# __name__ == "__main__" true hota hai
-# Iska matlab: main() function call karo aur app start karo
-# Agar ye file kisi aur file mein import ki jaaye to
-# main() automatically nahi chalegi — ye safety ke liye hai
-# ================================================
+# Entry point
 if __name__ == "__main__":
     main()
