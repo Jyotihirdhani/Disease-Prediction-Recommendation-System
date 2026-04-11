@@ -6,7 +6,7 @@
 # streamlit → Web app ka UI banane ke liye (form, buttons, text sab isi se)
 import streamlit as st
 
-# pandas → Data ko table format mein handle karne ke liye
+# pandas → Hospital data ko table format mein display karne ke liye
 import pandas as pd
 
 # logging → App ke andar kya ho raha hai wo track karne ke liye
@@ -18,12 +18,13 @@ import re
 # time → Agar API fail ho to retry ke beech wait karne ke liye
 import time
 
-# sqlite3 → Local database se connect karne ke liye (user data save karne ke liye)
-import sqlite3
-
 # google.genai → Google ka Gemini AI SDK — AI se response lene ke liye
 from google import genai
 from google.genai import types
+
+# supabase → Supabase cloud database se connect karne ke liye
+# Yahan se hum data insert aur fetch karenge
+from supabase import create_client, Client
 
 
 # ================================================
@@ -56,15 +57,14 @@ st.set_page_config(
 
 
 # ================================================
-# HOSPITAL DATA — Hardcoded Dictionary
+# HOSPITAL DATA — Hardcoded Fallback Dictionary
 #
-# Pehle hum Excel file use kar rahe the lekin wo
-# reliable nahi thi — file missing hoti thi, column
-# names match nahi karte the, city matching fail hoti thi
+# Ye dictionary tab use hogi jab Supabase se
+# hospital data fetch karna fail ho jaaye
+# Ya agar user ki city/state Supabase mein na mile
 #
-# Ab hum Python dictionary use kar rahe hain jisme
-# data directly code mein likha hai
-# Isse file loading ka koi risk nahi — data hamesha available rahega
+# Primary source → Supabase hospital table
+# Fallback source → Ye dictionary
 #
 # Structure:
 #   state_name (lowercase) ->
@@ -248,126 +248,132 @@ HOSPITAL_DATA = {
 
 
 # ================================================
-# DATABASE SETUP
-# SQLite ek lightweight database hai jo bina server
-# ke directly ek file mein data store karta hai
-# Yahan hum "healthcare.db" file banate hain
-# Isme ek table hai "users" jisme har patient ka
-# data store hota hai jab wo form submit karta hai
-# Agar ye function na ho to koi bhi data save nahi hoga
+# SUPABASE CLIENT INITIALIZATION
+# @st.cache_resource — ye ek baar hi chalega
+# aur result reuse hoga — baar baar connection
+# banana expensive hota hai isliye cache karte hain
+#
+# Supabase URL aur Key Streamlit Secrets se padhte hain
+# Ye keys GitHub pe visible nahi hoti — secure hai
+#
+# Agar keys missing ho to app ruk jaayegi
 # ================================================
-def init_database():
-    # healthcare.db se connect karo
-    # Agar file exist nahi karti to automatically ban jaati hai
-    conn = sqlite3.connect("healthcare.db")
-    cursor = conn.cursor()
-
-    # "users" table banao agar pehle se exist nahi karti
-    # IF NOT EXISTS — baar baar run karo to duplicate table nahi banega
-    # id        → Unique number automatically assign hoga har row ko
-    # name      → Patient ka naam
-    # age       → Patient ki umar
-    # gender    → Male/Female/Other
-    # city      → Jis city mein patient hai
-    # state     → Jis state mein patient hai
-    # symptoms  → Patient ne jo symptoms bataye
-    # ai_result → Gemini AI ne jo response diya
-    # timestamp → Exactly kis time pe record save hua
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            name      TEXT,
-            age       INTEGER,
-            gender    TEXT,
-            city      TEXT,
-            state     TEXT,
-            symptoms  TEXT,
-            ai_result TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # Changes ko permanently save karo
-    conn.commit()
-    # Database connection band karo — good practice hai
-    conn.close()
-
-
-def save_to_database(name, age, gender, city, state, symptoms, ai_result):
-    # Ye function ek patient ka record database mein save karta hai
-    # Ye tab call hota hai jab AI successfully response de deta hai
-    # try/except isliye hai taaki DB fail ho to app crash na kare
+@st.cache_resource
+def initialize_supabase() -> Client:
     try:
-        conn = sqlite3.connect("healthcare.db")
-        cursor = conn.cursor()
+        # Streamlit Secrets se Supabase URL aur Key lo
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        # Supabase client banao aur return karo
+        return create_client(url, key)
+    except KeyError as e:
+        st.error(f"🚨 Configuration Error: {e} is missing from Streamlit Secrets.")
+        st.stop()
 
-        # Naya row insert karo users table mein
-        # ? marks safe placeholders hain — SQL injection se bachate hain
-        cursor.execute("""
-            INSERT INTO users (name, age, gender, city, state, symptoms, ai_result)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (name, age, gender, city, state, symptoms, ai_result))
 
-        # Changes permanently save karo
-        conn.commit()
-        conn.close()
-        logger.info(f"Record saved for patient: {name}")
+# ================================================
+# SUPABASE — HOSPITAL FETCH FUNCTION
+# Primary method: Supabase ke hospital table se
+# city aur state ke basis pe hospitals dhundho
+#
+# Teri table ka schema:
+#   hospital_id, hospital_name, specialization,
+#   address, "State", "City"
+#
+# Note: "State" aur "City" columns capital letters mein hain
+# Supabase query mein exact column name use karna zaroori hai
+#
+# Agar Supabase se data mile to return karo
+# Agar na mile to None return karo — fallback chalega
+# ================================================
+def fetch_hospitals_from_supabase(supabase: Client, city: str, state: str):
+    try:
+        # Supabase ke hospital table se query karo
+        # .eq() → exact match filter hai
+        # "City" aur "State" — exact column names as in schema (capital)
+        # ilike → case-insensitive match karta hai (Delhi = delhi = DELHI)
+        response = (
+            supabase.table("hospital")
+            .select("hospital_name, specialization, address, \"City\", \"State\"")
+            .ilike("City", city.strip())
+            .ilike("State", state.strip())
+            .limit(5)
+            .execute()
+        )
+
+        # Agar data mila to list of dicts return karo
+        if response.data and len(response.data) > 0:
+            # Supabase response ko hamare standard format mein convert karo
+            hospitals = [
+                {
+                    "name":    row.get("hospital_name", "Unknown"),
+                    "spec":    row.get("specialization", "General"),
+                    "address": row.get("address", "N/A")
+                }
+                for row in response.data
+            ]
+            logger.info(f"Supabase se {len(hospitals)} hospitals mile for {city}, {state}")
+            return hospitals
+
+        # Data nahi mila — None return karo taaki fallback chale
+        logger.info(f"Supabase mein {city}, {state} ke liye hospitals nahi mile — fallback chalega")
+        return None
 
     except Exception as e:
-        # Error aayi to sirf log karo — app band mat karo
-        logger.error(f"Database save failed: {e}")
-
-
-# App start hote hi database aur table ready ho jaaye
-# Ye line ensure karti hai ki table hamesha available rahe
-init_database()
+        # Koi bhi error aaye to log karo aur None return karo
+        # App crash nahi karni chahiye sirf hospital fetch fail hone se
+        logger.error(f"Supabase hospital fetch error: {e}")
+        return None
 
 
 # ================================================
-# HOSPITAL LOOKUP FUNCTION
-# Ye function user ke city aur state ke basis pe
-# HOSPITAL_DATA dictionary mein hospitals dhundta hai
+# HOSPITAL LOOKUP FUNCTION — Primary + Fallback
 #
-# Step 1: Pehle check karo state dictionary mein hai ya nahi
-# Step 2: Phir city match karo us state ke andar
-# Step 3: Agar city nahi mili to usi state ki
-#         pehli available city ke hospitals dikhao (fallback)
-# Step 4: Agar state bhi nahi mila to generic message do
+# Ye function pehle Supabase se hospitals fetch karne
+# ki koshish karta hai (primary source)
+#
+# Agar Supabase se data na aaye to HOSPITAL_DATA
+# dictionary se hospitals dikhata hai (fallback)
 #
 # Return karta hai do cheezein:
 #   hospital_str  → String format — AI prompt mein use hogi
 #   hospital_list → List format — screen pe table dikhane ke liye
 # ================================================
-def get_local_hospitals(city: str, state: str):
+def get_local_hospitals(city: str, state: str, supabase: Client):
 
-    # User ka input lowercase aur trim karo
-    # "Delhi " ya "DELHI" sab "delhi" ban jaayenge — matching sahi hogi
-    city_key  = city.lower().strip()
-    state_key = state.lower().strip()
+    # ---- Step 1: Supabase se fetch karne ki koshish karo ----
+    # Ye primary source hai — real database data
+    supabase_hospitals = fetch_hospitals_from_supabase(supabase, city, state)
 
-    # Check karo ki state hamare dictionary mein hai ya nahi
-    if state_key not in HOSPITAL_DATA:
-        # State nahi mili — fallback message return karo
-        fallback_msg = (
-            f"No hospital data found for '{state}'. "
-            "Please visit your nearest government hospital or local clinic."
-        )
-        return fallback_msg, []
+    if supabase_hospitals:
+        # Supabase se data mila — ise use karo
+        hospitals = supabase_hospitals
 
-    # Us state ka data nikaalo
-    state_hospitals = HOSPITAL_DATA[state_key]
-
-    # Exact city match try karo
-    if city_key in state_hospitals:
-        # City match mili — us city ke hospitals lo
-        hospitals  = state_hospitals[city_key]
     else:
-        # City match nahi mili — state ki pehli city ke hospitals dikhao
-        # Ye fallback hai taaki user ko kuch relevant results mile
-        found_city = list(state_hospitals.keys())[0]
-        hospitals  = state_hospitals[found_city]
+        # ---- Step 2: Supabase fail hua — dictionary fallback ----
+        # User ka input lowercase aur trim karo matching ke liye
+        city_key  = city.lower().strip()
+        state_key = state.lower().strip()
 
-    # Hospital list ko AI prompt ke liye readable string mein convert karo
+        # Check karo state dictionary mein hai ya nahi
+        if state_key not in HOSPITAL_DATA:
+            fallback_msg = (
+                f"No hospital data found for '{state}'. "
+                "Please visit your nearest government hospital or local clinic."
+            )
+            return fallback_msg, []
+
+        state_hospitals = HOSPITAL_DATA[state_key]
+
+        # Exact city match try karo dictionary mein
+        if city_key in state_hospitals:
+            hospitals = state_hospitals[city_key]
+        else:
+            # City nahi mili — state ki pehli available city use karo
+            found_city = list(state_hospitals.keys())[0]
+            hospitals  = state_hospitals[found_city]
+
+    # ---- Hospital list ko AI prompt ke liye string mein convert karo ----
     # Har hospital ek line mein: - Name (Specialization, Address)
     hospital_str = "\n".join(
         f"- {h['name']} ({h['spec']}, {h['address']})"
@@ -376,6 +382,91 @@ def get_local_hospitals(city: str, state: str):
 
     # Dono return karo: string AI ke liye, list screen display ke liye
     return hospital_str, hospitals
+
+
+# ================================================
+# SUPABASE — USER DATA SAVE FUNCTION
+# Jab user form submit kare to pehle users table mein
+# basic details save karo aur naya user_id lo
+#
+# users table columns:
+#   user_id (auto), name, age, gender,
+#   state, city, symptoms, created_at (auto)
+#
+# Return karta hai: naya user_id jo report table mein use hoga
+# Agar fail ho to None return karo
+# ================================================
+def save_user_to_supabase(supabase: Client, name, age, gender, city, state, symptoms):
+    try:
+        # users table mein naya record insert karo
+        # user_id aur created_at automatically set hote hain
+        response = (
+            supabase.table("users")
+            .insert({
+                "name":     name,
+                "age":      age,
+                "gender":   gender,
+                "city":     city,
+                "state":    state,
+                "symptoms": symptoms
+            })
+            .execute()
+        )
+
+        # Insert successful — naya user_id return karo
+        # response.data[0] mein inserted row ka data hota hai
+        if response.data and len(response.data) > 0:
+            user_id = response.data[0]["user_id"]
+            logger.info(f"User saved in Supabase with user_id: {user_id}")
+            return user_id
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Supabase user save failed: {e}")
+        return None
+
+
+# ================================================
+# SUPABASE — REPORT DATA SAVE FUNCTION
+# AI analysis complete hone ke baad report table mein
+# saara data save karo including AI result
+#
+# report table columns:
+#   report_id (auto), user_id (FK), name, age,
+#   gender, state, city, symptoms,
+#   analysed_health_condition, timestamp (auto)
+#
+# user_id foreign key hai — users table se link hai
+# ================================================
+def save_report_to_supabase(supabase: Client, user_id, name, age, gender, city, state, symptoms, ai_result):
+    try:
+        # report table mein naya record insert karo
+        # report_id aur timestamp automatically set hote hain
+        response = (
+            supabase.table("report")
+            .insert({
+                "user_id":                    user_id,
+                "name":                       name,
+                "age":                        age,
+                "gender":                     gender,
+                "city":                       city,
+                "state":                      state,
+                "symptoms":                   symptoms,
+                "analysed_health_condition":  ai_result
+            })
+            .execute()
+        )
+
+        if response.data and len(response.data) > 0:
+            logger.info(f"Report saved in Supabase for user_id: {user_id}")
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Supabase report save failed: {e}")
+        return False
 
 
 # ================================================
@@ -521,13 +612,15 @@ not a substitute for a real doctor.
 # MAIN FUNCTION
 # Poora Streamlit UI yahan build hota hai:
 #   1. Page title aur subtitle
-#   2. Patient input form
-#   3. Submit ke baad validation
-#   4. Hospital dhundna aur dikhana
-#   5. AI analysis call karna
-#   6. Result dikhana
-#   7. Database mein save karna
-#   8. Report download button
+#   2. Supabase aur AI client initialize karna
+#   3. Patient input form
+#   4. Submit ke baad validation
+#   5. Supabase mein user data save karna
+#   6. Hospital dhundna (Supabase first, fallback second)
+#   7. AI analysis call karna
+#   8. Result dikhana
+#   9. Supabase mein report save karna
+#   10. Report download button
 # ================================================
 def main():
 
@@ -538,6 +631,9 @@ def main():
 
     # Gemini AI client initialize karo (cache hota hai — ek baar hi chalta hai)
     client = initialize_ai()
+
+    # Supabase client initialize karo (cache hota hai — ek baar hi chalta hai)
+    supabase = initialize_supabase()
 
     # ================================================
     # INPUT FORM
@@ -614,13 +710,26 @@ def main():
         symptoms = sanitize_input(raw_symptoms)
         age      = int(raw_age)
 
-        # ---- Hospital Lookup ----
-        # User ke city aur state ke basis pe dictionary se hospitals lo
+        # ---- Step 1: User ko Supabase users table mein save karo ----
+        # Button click hote hi pehla kaam — basic details save karna
+        # user_id wapas milega jo report table mein foreign key hoga
+        user_id = save_user_to_supabase(supabase, name, age, gender, city, state, symptoms)
+
+        if user_id:
+            logger.info(f"User record created with ID: {user_id}")
+        else:
+            # User save nahi hua lekin app band mat karo
+            # Agla saara kaam phir bhi chalega
+            logger.warning("User record could not be saved to Supabase. Continuing...")
+
+        # ---- Step 2: Hospital Lookup ----
+        # Pehle Supabase hospital table se fetch karo
+        # Agar nahi mila to HOSPITAL_DATA dictionary fallback use hogi
         # hospital_context → AI prompt mein bheja jaayega (string)
         # hospital_list    → Screen pe table mein dikhaya jaayega (list)
-        hospital_context, hospital_list = get_local_hospitals(city, state)
+        hospital_context, hospital_list = get_local_hospitals(city, state, supabase)
 
-        # ---- Hospitals Screen Pe Dikhao ----
+        # ---- Step 3: Hospitals Screen Pe Dikhao ----
         st.markdown("### 🏥 Nearby Hospitals")
 
         if hospital_list:
@@ -634,25 +743,35 @@ def main():
             # Hospital nahi mila — warning dikhao
             st.warning(hospital_context)
 
-        # ---- AI Analysis ----
+        # ---- Step 4: AI Analysis ----
         # Spinner dikhao jabtak AI response generate ho raha hai
         with st.spinner("Analyzing your symptoms, please wait..."):
             analysis = generate_medical_analysis(
                 client, name, age, gender, symptoms, hospital_context
             )
 
-        # ---- Result Display ----
+        # ---- Step 5: Result Display ----
         if analysis:
 
             st.markdown("### 🤖 AI Medical Analysis")
             st.write(analysis)
 
-            # ---- Database Save ----
-            # Ye silently background mein hota hai
-            # Patient ko koi message nahi dikhta — intentional hai
-            save_to_database(name, age, gender, city, state, symptoms, analysis)
+            # ---- Step 6: Report Supabase mein save karo ----
+            # AI result milne ke baad report table mein poora data save karo
+            # user_id foreign key hai jo users table se link karta hai
+            # Agar user_id None hai (user save fail hua tha) to 0 use karo
+            report_saved = save_report_to_supabase(
+                supabase,
+                user_id if user_id else 0,
+                name, age, gender, city, state, symptoms, analysis
+            )
 
-            # ---- Downloadable Report ----
+            if report_saved:
+                logger.info("Report successfully saved to Supabase.")
+            else:
+                logger.warning("Report could not be saved to Supabase.")
+
+            # ---- Step 7: Downloadable Report ----
             # Patient ke liye ek plain text report banate hain
             # Isme saari details aur AI analysis included hoti hai
             report = f"""
