@@ -5,3 +5,5 @@ scikit-learn
 openpyxl
 google-genai
 supabase
+reportlab
+pytz
